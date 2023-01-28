@@ -1,0 +1,23 @@
+version: "3.11"
+
+services:
+  backend:
+    build: .
+    depends_on:
+      - mongodb
+    volumes:
+      - ./src:/src:ro
+    restart: always
+
+  mongodb:
+    image: mongo:4.4.18
+    ports:
+      - 27017:27017
+    volumes:
+      - db_volume:/data/db:rw
+      - db_conf:/data/configdb
+    restart: always
+
+volumes:
+  db_volume:
+  db_conf:
