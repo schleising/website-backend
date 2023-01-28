@@ -1,4 +1,4 @@
-from .main import Football
+from .football import Football
 
 __all__ = [
     'Football',
