@@ -6,10 +6,7 @@ from types import FrameType
 from typing import Any
 import logging
 
-def print_time(id: int, terminate_event: Event) -> None:
-    while not terminate_event.is_set():
-        logging.info(f'Thread ID: {id}')
-        sleep(1)
+from football import Football
 
 def terminate(signal: int, _: FrameType | None) -> Any:
     # Initialise sig_type to UNKNOWN
@@ -50,9 +47,11 @@ if __name__ == '__main__':
     signal(SIGTERM, terminate)
     signal(SIGINT, terminate)
 
+    football = Football()
+
     # Log that the backend is intialised
     logging.info('Backend Initialising')
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(print_time, i, terminate_event) for i in range(5)]
+        futures = [executor.submit(football.print_time, i, terminate_event) for i in range(5)]
