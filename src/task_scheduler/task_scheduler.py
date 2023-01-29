@@ -23,7 +23,7 @@ class TaskScheduler:
         # Only add the task if it is in the future
         if utc_time > datetime.now(timezone.utc):
             # Add the task
-            self.task_list.append(Task(time, function, frequency))
+            self.task_list.append(Task(utc_time, function, frequency))
             logging.info(f'Task added')
             return True
         else:
