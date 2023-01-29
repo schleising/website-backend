@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 import logging
 
 import requests
@@ -14,12 +14,19 @@ class Football:
     def __init__(self, scheduler: TaskScheduler) -> None:
         self.scheduler = scheduler
 
-        # Schedule the periodic task
-        self.scheduler.schedule_task(datetime.now(timezone.utc) + timedelta(seconds=1), self.print_time, timedelta(seconds=1))
+        # Get the current date and time
+        current_date_utc = datetime.now(timezone.utc).date()
+        current_time_utc = datetime.now(timezone.utc).time()
 
-    def print_time(self) -> None:
-        # Print the time on schedule
-        logging.info(f'Time: {datetime.now(timezone.utc)}')
+        if current_time_utc < time(hour=1):
+            # If it is before 1am today, set the update time to 1am today, both UTC
+            next_match_update_time = datetime(current_date_utc.year, current_date_utc.month, current_date_utc.day, 1)
+        else:
+            # Otherwise set it to 1am tomorrow
+            next_match_update_time = datetime(current_date_utc.year, current_date_utc.month, current_date_utc.day, 1) + timedelta(days=1)
+
+        # Schedule the periodic task
+        self.scheduler.schedule_task(next_match_update_time, self.get_matches, timedelta(days=1))
 
     def get_matches(self) -> None:
         logging.info('Getting Matches')
