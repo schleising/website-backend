@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -103,7 +103,7 @@ class Match(BaseModel):
     matchday: int
     stage: str
     group: str | None
-    last_updated: str = Field(..., alias='lastUpdated')
+    last_updated: datetime = Field(..., alias='lastUpdated')
     home_team: Team = Field(..., alias='homeTeam')
     away_team: Team = Field(..., alias='awayTeam')
     score: Score
