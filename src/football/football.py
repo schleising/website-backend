@@ -13,9 +13,9 @@ class Football:
         pass
 
     def get_matches(self, terminate_event: Event) -> None:
-        response = requests.get('https://api.football-data.org/v4/competitions/PL/matches?dateFrom=2022-07-01&dateTo=2023-06-30', headers=HEADERS)
-
         logging.info('Getting Matches')
+
+        response = requests.get('https://api.football-data.org/v4/competitions/PL/matches?dateFrom=2022-07-01&dateTo=2023-06-30', headers=HEADERS)
 
         if response.status_code == requests.status_codes.codes.ok:
             logging.info('Parsing Matches')
@@ -25,15 +25,15 @@ class Football:
             operations = [UpdateOne({'id': match.id}, { '$set': match.dict() }, upsert=True) for match in matches.matches]
 
             if pl_match_collection is not None:
-                logging.info(f'Writing {len(operations)} entries')
+                logging.info(f'Writing {len(operations)} Entries')
 
                 pl_match_collection.bulk_write(operations)
 
-                logging.info('Matches added')
+                logging.info('Matches Added')
             else:
-                logging.info('No database connection')
+                logging.info('No Database Connection')
         else:
-            logging.info(f'Not Allowed: {response.status_code}')
+            logging.info(f'Download Error: {response.status_code}')
 
     def get_table(self, terminate_event: Event) -> None:
         response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS)
