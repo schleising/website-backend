@@ -8,16 +8,15 @@ import logging
 
 from football import Football
 
-def terminate(signal: int, _: FrameType | None) -> Any:
-    # Initialise sig_type to UNKNOWN
-    sig_type = 'UNKNOWN'
-
+def terminate(signal: int, _: FrameType | None) -> None:
     # Change the sig_type into a string
     match signal:
         case Signals.SIGINT:
             sig_type = 'SIGINT'
         case Signals.SIGTERM:
             sig_type = 'SIGTERM'
+        case _:
+            sig_type = 'UNKNOWN'
 
     # Log the reason for exiting
     logging.info(f'Exiting Threads due to {sig_type}')
@@ -54,4 +53,4 @@ if __name__ == '__main__':
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(football.print_time, i, terminate_event) for i in range(5)]
+        futures.append(executor.submit(football.get_matches, terminate_event))
