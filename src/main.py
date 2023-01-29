@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_EXCEPTION, Future
 from threading import Event
 from time import sleep
 from signal import signal, SIGTERM, SIGINT, Signals
@@ -34,7 +34,7 @@ def terminate(signal: int, _: FrameType | None) -> None:
 
 if __name__ == '__main__':
     # Initialise an empty futures array
-    futures = []
+    futures: list[Future] = []
 
     # Event to terminate threads
     terminate_event = Event()
@@ -54,3 +54,8 @@ if __name__ == '__main__':
     # Submit the futures
     with ThreadPoolExecutor() as executor:
         futures.append(executor.submit(football.get_matches, terminate_event))
+
+        wait(futures, return_when=FIRST_EXCEPTION)
+
+        for future in futures:
+            print(future.result())
