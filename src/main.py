@@ -3,10 +3,9 @@ from threading import Event
 from time import sleep
 from signal import signal, SIGTERM, SIGINT, Signals
 from types import FrameType
-from typing import Any
 import logging
 
-from football import Football
+from football import football_loop
 
 def terminate(signal: int, _: FrameType | None) -> None:
     # Change the sig_type into a string
@@ -46,16 +45,16 @@ if __name__ == '__main__':
     signal(SIGTERM, terminate)
     signal(SIGINT, terminate)
 
-    football = Football()
-
     # Log that the backend is intialised
     logging.info('Backend Initialising')
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:
-        futures.append(executor.submit(football.get_matches, terminate_event))
+        futures.append(executor.submit(football_loop, terminate_event))
 
+        # If any of the threads raises an exception then exit to output it
         wait(futures, return_when=FIRST_EXCEPTION)
 
         for future in futures:
+            # Print the results, including any exceptions
             print(future.result())

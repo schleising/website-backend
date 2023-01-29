@@ -22,7 +22,9 @@ except:
 HEADERS = { 'X-Auth-Token': api_key }
 
 from .football import Football
+from .football_main import football_loop
 
 __all__ = [
     'Football',
+    'football_loop',
 ]

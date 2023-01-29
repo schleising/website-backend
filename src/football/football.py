@@ -1,4 +1,4 @@
-from threading import Event
+from datetime import datetime, timedelta, timezone
 import logging
 
 import requests
@@ -8,11 +8,20 @@ from . import HEADERS, pl_match_collection
 
 from .models import Table, Matches
 
-class Football:
-    def __init__(self) -> None:
-        pass
+from task_scheduler import TaskScheduler
 
-    def get_matches(self, terminate_event: Event) -> None:
+class Football:
+    def __init__(self, scheduler: TaskScheduler) -> None:
+        self.scheduler = scheduler
+
+        # Schedule the periodic task
+        self.scheduler.schedule_task(datetime.now(timezone.utc) + timedelta(seconds=1), self.print_time, timedelta(seconds=1))
+
+    def print_time(self) -> None:
+        # Print the time on schedule
+        logging.info(f'Time: {datetime.now(timezone.utc)}')
+
+    def get_matches(self) -> None:
         logging.info('Getting Matches')
 
         response = requests.get('https://api.football-data.org/v4/competitions/PL/matches?dateFrom=2022-07-01&dateTo=2023-06-30', headers=HEADERS)
@@ -35,7 +44,7 @@ class Football:
         else:
             logging.info(f'Download Error: {response.status_code}')
 
-    def get_table(self, terminate_event: Event) -> None:
+    def get_table(self) -> None:
         response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS)
 
         if response.status_code == requests.status_codes.codes.ok:
