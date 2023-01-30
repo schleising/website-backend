@@ -12,7 +12,7 @@ pl_match_collection = mongo_db.get_collection('pl_matches')
 # Try to read the api key from the secret file
 try:
     with open(Path('src/football/football_api_token.txt'), 'r', encoding='utf-8') as secretFile:
-        api_key = secretFile.read()
+        api_key = secretFile.read().strip()
 except:
     # If this fails there's nothing we can do, so exit
     print('No football_api_token.txt file found')
