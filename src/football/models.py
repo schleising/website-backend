@@ -26,12 +26,18 @@ class Season(BaseModel):
     current_matchday: int = Field(..., alias='currentMatchday')
     winner: str | None
 
+    class Config:
+        allow_population_by_field_name = True
+
 class Team(BaseModel):
     id: int
     name: str
     short_name: str = Field(..., alias='shortName')
     tla: str
     crest: str
+
+    class Config:
+        allow_population_by_field_name = True
 
 class TableItem(BaseModel):
     position: int
@@ -45,6 +51,9 @@ class TableItem(BaseModel):
     goals_for: int = Field(..., alias='goalsFor')
     goals_against: int = Field(..., alias='goalsAgainst')
     goal_difference: int = Field(..., alias='goalDifference')
+
+    class Config:
+        allow_population_by_field_name = True
 
 class Standing(BaseModel):
     stage: str
@@ -81,6 +90,8 @@ class Score(BaseModel):
     full_time: FullTime = Field(..., alias='fullTime')
     half_time: HalfTime = Field(..., alias='halfTime')
 
+    class Config:
+        allow_population_by_field_name = True
 
 class Odds(BaseModel):
     msg: str
@@ -110,8 +121,14 @@ class Match(BaseModel):
     odds: Odds
     referees: list[Referee]
 
+    class Config:
+        allow_population_by_field_name = True
+
 class Matches(BaseModel):
     filters: Filters
     result_set: ResultSet = Field(..., alias='resultSet')
     competition: Competition
     matches: list[Match]
+
+    class Config:
+        allow_population_by_field_name = True
