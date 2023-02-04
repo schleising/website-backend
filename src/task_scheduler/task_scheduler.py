@@ -20,15 +20,14 @@ class TaskScheduler:
         # Ensure the task run time is stored in UTC
         utc_time = time.astimezone(timezone.utc)
 
-        # Only add the task if it is in the future
-        if utc_time > datetime.now(timezone.utc):
-            # Add the task
-            self.task_list.append(Task(utc_time, function, frequency))
-            logging.info(f'Task added')
-            return True
-        else:
-            logging.error('Could not add task in the past')
-            return False
+        # If the task is in the past, set it to now so it runs immediately and any scheduling uses this as its basis
+        if utc_time < datetime.now(timezone.utc):
+            utc_time = datetime.now(timezone.utc)
+
+        # Add the task
+        self.task_list.append(Task(utc_time, function, frequency))
+        logging.info(f'Task added')
+        return True
 
     def get_runnable_tasks(self) -> list[Task]:
         # Initialise an empty list of runnable tasks
