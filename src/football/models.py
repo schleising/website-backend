@@ -1,7 +1,19 @@
 from __future__ import annotations
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, Field
+
+class MatchStatus(str, Enum):
+    scheduled = 'SCHEDULED'
+    timed = 'TIMED'
+    in_play = 'IN_PLAY'
+    paused = 'PAUSED'
+    finished = 'FINISHED'
+    suspended = 'SUSPENDED'
+    postponed = 'POSTPONED'
+    cancelled = 'CANCELLED'
+    awarded = 'AWARDED'
 
 class Filters(BaseModel):
     season: str
@@ -110,7 +122,7 @@ class Match(BaseModel):
     season: Season
     id: int
     utc_date: datetime = Field(..., alias='utcDate')
-    status: str
+    status: MatchStatus
     matchday: int
     stage: str
     group: str | None
@@ -132,3 +144,6 @@ class Matches(BaseModel):
 
     class Config:
         allow_population_by_field_name = True
+
+class MatchList(BaseModel):
+    matches: list[Match]
