@@ -39,7 +39,7 @@ if __name__ == '__main__':
     terminate_event = Event()
 
     # Initialise logging
-    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+    logging.basicConfig(format='Backend: %(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
     # Handle SIGTERM and SIGINT
     signal(SIGTERM, terminate)
