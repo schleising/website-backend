@@ -42,9 +42,6 @@ class Football:
         # Get todays matches now
         self.get_todays_matches()
 
-        # Get the table now
-        self.get_table()
-
     def get_season_matches(self) -> None:
         self.get_matches_between_dates(datetime(2022, 7, 1), datetime(2023, 6, 30))
 
@@ -124,11 +121,13 @@ class Football:
     def get_table(self) -> None:
         # Only update the table once a minute
         if datetime.now(timezone.utc) - self.last_table_update > timedelta(minutes=1):
+            logging.info('Getting Table')
             try:
                 response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS, timeout=5)
             except requests.Timeout:
                 logging.error('Table Download Timed Out')
             else:
+                logging.info('Table Downloaded')
                 # Set the last table update time
                 self.last_table_update = datetime.now(timezone.utc)
 
@@ -137,7 +136,9 @@ class Football:
 
                     # Update the database with the table
                     if pl_table_collection is not None:
+                        logging.info('Writing Table')
                         pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
+                        logging.info('Table Written')
 
                     for table_entry in table.standings[0].table:
                         logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
