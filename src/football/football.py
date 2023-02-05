@@ -84,7 +84,10 @@ class Football:
             if pl_match_collection is not None:
                 logging.info(f'Writing {len(operations)} Entries')
 
-                pl_match_collection.bulk_write(operations)
+                try:
+                    pl_match_collection.bulk_write(operations)
+                except:
+                    logging.error("Failed to Write Matches to DB")
 
                 logging.info('Matches Added')
             else:
@@ -137,8 +140,12 @@ class Football:
                     # Update the database with the table
                     if pl_table_collection is not None:
                         logging.info('Writing Table')
-                        pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
-                        logging.info('Table Written')
+                        try:
+                            pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
+                        except:
+                            logging.error('Failed to Write Table to DB')
+                        else:
+                            logging.info('Table Written')
 
                     for table_entry in table.standings[0].table:
                         logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
