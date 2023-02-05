@@ -86,9 +86,9 @@ class Football:
 
             self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
 
-        elif any(match.utc_date > datetime.now(timezone.utc) for match in matches):
+        elif any(match.utc_date > datetime.now(timezone.utc) + timedelta(minutes=100) for match in matches):
             # Find the next match time
-            next_match_utc = min(match.utc_date for match in matches if match.utc_date > datetime.now(timezone.utc) - timedelta(minutes=5))
+            next_match_utc = min(match.utc_date for match in matches if match.utc_date > datetime.now(timezone.utc) - timedelta(minutes=100))
 
             if next_match_utc < datetime.now(timezone.utc):
                 next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
