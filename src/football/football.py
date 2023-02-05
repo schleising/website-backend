@@ -54,12 +54,13 @@ class Football:
 
         matches = self.get_matches_between_dates(datetime.now(timezone.utc), datetime.now(timezone.utc))
 
-        for match in matches:
-            logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home:4} {match.score.full_time.away:4} {match.away_team.short_name:14} {match.status}')
+        if matches is not None:
+            for match in matches:
+                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home:4} {match.score.full_time.away:4} {match.away_team.short_name:14} {match.status}')
 
         self.schedule_live_updates(matches)
 
-    def get_matches_between_dates(self, from_date: datetime, to_date: datetime) -> list[Match]:
+    def get_matches_between_dates(self, from_date: datetime, to_date: datetime) -> list[Match] | None:
         logging.info('Getting Matches')
 
         match_list: list[Match] = []
@@ -68,7 +69,11 @@ class Football:
         from_date = from_date.astimezone(timezone.utc)
         to_date = to_date.astimezone(timezone.utc) + timedelta(days=1)
 
-        response = requests.get(f'https://api.football-data.org/v4/competitions/PL/matches?dateFrom={from_date.date()}&dateTo={to_date.date()}', headers=HEADERS)
+        try:
+            response = requests.get(f'https://api.football-data.org/v4/competitions/PL/matches?dateFrom={from_date.date()}&dateTo={to_date.date()}', headers=HEADERS, timeout=5)
+        except requests.Timeout:
+            logging.error('Request Timed Out')
+            return None
 
         if response.status_code == requests.status_codes.codes.ok:
             logging.info('Parsing Matches')
@@ -89,42 +94,50 @@ class Football:
                 logging.info('No Database Connection')
         else:
             logging.info(f'Download Error: {response.status_code}')
+            return None
 
         return match_list
 
-    def schedule_live_updates(self, matches: list[Match]) -> None:
-        if any(match.status in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended] for match in matches):
-            logging.info('At least one match is in play')
+    def schedule_live_updates(self, matches: list[Match] | None) -> None:
+        if matches is not None:
+            if any(match.status in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended] for match in matches):
+                logging.info('At least one match is in play')
 
-            self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
+                self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
 
-        elif any(match.status in [MatchStatus.awarded, MatchStatus.scheduled, MatchStatus.timed] for match in matches):
-            # Find the next match time
-            next_match_utc = min(match.utc_date for match in matches if match.utc_date > datetime.now(timezone.utc) - timedelta(minutes=100))
+            elif any(match.status in [MatchStatus.awarded, MatchStatus.scheduled, MatchStatus.timed] for match in matches):
+                # Find the next match time
+                next_match_utc = min(match.utc_date for match in matches if match.utc_date > datetime.now(timezone.utc) - timedelta(minutes=100))
 
-            if next_match_utc < datetime.now(timezone.utc):
-                next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
+                if next_match_utc < datetime.now(timezone.utc):
+                    next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
 
-            logging.info(f'Next match time {next_match_utc}')
-            
-            self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+                logging.info(f'Next match time {next_match_utc}')
+                
+                self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+            else:
+                logging.info('No more matches today')
         else:
-            logging.info('No more matches today')
+            logging.info('Rescheduling Match Update Due to Error')
+            self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
 
     def get_table(self) -> None:
         # Only update the table once a minute
         if datetime.now(timezone.utc) - self.last_table_update > timedelta(minutes=1):
-            response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS)
+            try:
+                response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS, timeout=5)
+            except requests.Timeout:
+                logging.error('Table Download Timed Out')
+            else:
+                # Set the last table update time
+                self.last_table_update = datetime.now(timezone.utc)
 
-            # Set the last table update time
-            self.last_table_update = datetime.now(timezone.utc)
+                if response.status_code == requests.status_codes.codes.ok:
+                    table = Table.parse_raw(response.content)
 
-            if response.status_code == requests.status_codes.codes.ok:
-                table = Table.parse_raw(response.content)
+                    # Update the database with the table
+                    if pl_table_collection is not None:
+                        pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
 
-                # Update the database with the table
-                if pl_table_collection is not None:
-                    pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
-
-                for table_entry in table.standings[0].table:
-                    logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+                    for table_entry in table.standings[0].table:
+                        logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
