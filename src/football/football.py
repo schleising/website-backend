@@ -4,7 +4,7 @@ import logging
 import requests
 from pymongo.operations import UpdateOne
 
-from . import HEADERS, pl_match_collection
+from . import HEADERS, pl_match_collection, pl_table_collection
 
 from .models import Table, Matches, Match, MatchStatus
 
@@ -20,6 +20,9 @@ class Football:
         current_date_utc = datetime.now(timezone.utc).date()
         current_time_utc = datetime.now(timezone.utc).time()
 
+        # Set the last table update time
+        self.last_table_update = datetime.now(timezone.utc) - timedelta(minutes=2)
+
         if current_time_utc < time(hour=1):
             # If it is before 1am today, set the update time to 1am today, both UTC
             next_match_update_time = datetime(current_date_utc.year, current_date_utc.month, current_date_utc.day, 1)
@@ -28,7 +31,10 @@ class Football:
             next_match_update_time = datetime(current_date_utc.year, current_date_utc.month, current_date_utc.day, 1) + timedelta(days=1)
 
         # Schedule the update of all matches
-        self.scheduler.schedule_task(next_match_update_time, self.get_matches, timedelta(days=1))
+        self.scheduler.schedule_task(next_match_update_time, self.get_season_matches, timedelta(days=1))
+
+        # Schedule the table update 30 seconds later
+        self.scheduler.schedule_task(next_match_update_time + timedelta(seconds=30), self.get_table, timedelta(days=1))
 
         # Schedule the check for todays matches one minute later
         self.scheduler.schedule_task(next_match_update_time + timedelta(minutes=1), self.get_todays_matches, timedelta(days=1))
@@ -36,14 +42,20 @@ class Football:
         # Get todays matches now
         self.get_todays_matches()
 
-    def get_matches(self) -> None:
+        # Get the table now
+        self.get_table()
+
+    def get_season_matches(self) -> None:
         self.get_matches_between_dates(datetime(2022, 7, 1), datetime(2023, 6, 30))
 
     def get_todays_matches(self) -> None:
+        # Get the table
+        self.get_table()
+
         matches = self.get_matches_between_dates(datetime.now(timezone.utc), datetime.now(timezone.utc))
 
         for match in matches:
-            logging.info(f'{match.home_team.short_name} {match.score.full_time.home} {match.score.full_time.away} {match.away_team.short_name} {match.status}')
+            logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home:4} {match.score.full_time.away:4} {match.away_team.short_name:14} {match.status}')
 
         self.schedule_live_updates(matches)
 
@@ -100,10 +112,19 @@ class Football:
             logging.info('No more matches today')
 
     def get_table(self) -> None:
-        response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS)
+        # Only update the table once a minute
+        if datetime.now(timezone.utc) - self.last_table_update > timedelta(minutes=1):
+            response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS)
 
-        if response.status_code == requests.status_codes.codes.ok:
-            table = Table.parse_raw(response.content)
+            # Set the last table update time
+            self.last_table_update = datetime.now(timezone.utc)
 
-            for table_entry in table.standings[0].table:
-                print(f'{table_entry.position:02} {table_entry.team.short_name:20} {table_entry.points}')
+            if response.status_code == requests.status_codes.codes.ok:
+                table = Table.parse_raw(response.content)
+
+                # Update the database with the table
+                if pl_table_collection is not None:
+                    pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
+
+                for table_entry in table.standings[0].table:
+                    logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
