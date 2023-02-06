@@ -81,7 +81,11 @@ class Football:
             logging.info('Creating Operations')
             operations = [UpdateOne({'id': match.id}, { '$set': match.dict() }, upsert=True) for match in match_list]
 
-            if pl_match_collection is not None:
+            if pl_match_collection is None:
+                logging.error('No Database Connection')
+            elif not operations:
+                logging.info('No Matches to Write')
+            else:
                 logging.info(f'Writing {len(operations)} Entries')
 
                 try:
@@ -90,8 +94,6 @@ class Football:
                     logging.error("Failed to Write Matches to DB")
 
                 logging.info('Matches Added')
-            else:
-                logging.info('No Database Connection')
         else:
             logging.info(f'Download Error: {response.status_code}')
             return None
