@@ -53,7 +53,7 @@ class Football:
 
         if matches is not None:
             for match in matches:
-                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home:4} {match.score.full_time.away:4} {match.away_team.short_name:14} {match.status}')
+                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "TBD":3} {match.score.full_time.away if match.score.full_time.away is not None else "TBD":3} {match.away_team.short_name:14} {match.status}')
 
         self.schedule_live_updates(matches)
 
@@ -64,7 +64,7 @@ class Football:
 
         # Ensure times are in UTC and add one day to the end time as it is not inclusive
         from_date = from_date.astimezone(timezone.utc)
-        to_date = to_date.astimezone(timezone.utc) + timedelta(days=1)
+        to_date = to_date.astimezone(timezone.utc)
 
         try:
             response = requests.get(f'https://api.football-data.org/v4/competitions/PL/matches?dateFrom={from_date.date()}&dateTo={to_date.date()}', headers=HEADERS, timeout=5)
