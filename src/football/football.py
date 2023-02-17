@@ -143,7 +143,9 @@ class Football:
                     if pl_table_collection is not None:
                         logging.info('Writing Table')
                         try:
-                            pl_table_collection.update_one({}, { '$set': table.dict() }, upsert=True)
+                            logging.info('Creating Table Operations')
+                            operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.dict() }, upsert=True) for table_entry in table.standings[0].table]
+                            pl_table_collection.bulk_write(operations)
                         except:
                             logging.error('Failed to Write Table to DB')
                         else:
