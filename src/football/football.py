@@ -219,7 +219,7 @@ class Football:
     def get_table(self) -> None:
         logging.info('Getting Table')
         try:
-            response = requests.get('https://api.football-data.org/v4/competitions/PL/standings/', headers=HEADERS, timeout=5)
+            response = requests.get(f'https://api.football-data.org/v4/competitions/PL/standings/?date={datetime.now(timezone.utc).date()}', headers=HEADERS, timeout=5)
         except requests.Timeout:
             logging.error('Table Download Timed Out')
         else:
