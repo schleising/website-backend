@@ -191,11 +191,6 @@ class Football:
             logging.info(f'Download Error: {response.status_code}')
             return None
 
-        # for match in match_list:
-        #     match.status = MatchStatus.in_play
-        #     match.score.full_time.home = 1
-        #     match.score.full_time.away = 0
-
         return match_list
 
     def schedule_live_updates(self, matches: list[Match] | None) -> None:
@@ -274,7 +269,8 @@ class Football:
 
             # Update the table entry for the teams that need an update
             for team_name, table_update in update_dict.items():
-                table_dict[team_name].status = table_update.match_status
+                table_dict[team_name].has_started = table_update.match_status.has_started
+                table_dict[team_name].has_finished = table_update.match_status.has_finished
                 table_dict[team_name].played_games += table_update.played
                 table_dict[team_name].won += table_update.won
                 table_dict[team_name].draw += table_update.draw

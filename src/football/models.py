@@ -83,7 +83,8 @@ class TableItem(BaseModel):
         allow_population_by_field_name = True
 
 class LiveTableItem(TableItem):
-    status: MatchStatus | None = None
+    has_started: bool = False
+    has_finished: bool = False
 
 class Standing(BaseModel):
     stage: str
