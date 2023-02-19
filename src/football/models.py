@@ -41,7 +41,14 @@ class MatchStatus(str, Enum):
                 return False
             case MatchStatus.in_play | MatchStatus.paused | MatchStatus.finished | MatchStatus.suspended:
                 return True
-            
+
+    @property
+    def is_halftime(self) -> bool:
+        if self == MatchStatus.paused:
+            return True
+        else:
+            return False
+
     @property
     def has_finished(self) -> bool:
         if self == MatchStatus.finished:
@@ -103,6 +110,7 @@ class TableItem(BaseModel):
 
 class LiveTableItem(TableItem):
     has_started: bool = False
+    is_halftime: bool = False
     has_finished: bool = False
 
 class Standing(BaseModel):

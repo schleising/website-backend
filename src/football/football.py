@@ -270,6 +270,7 @@ class Football:
             # Update the table entry for the teams that need an update
             for team_name, table_update in update_dict.items():
                 table_dict[team_name].has_started = table_update.match_status.has_started
+                table_dict[team_name].is_halftime = table_update.match_status.is_halftime
                 table_dict[team_name].has_finished = table_update.match_status.has_finished
                 table_dict[team_name].played_games += table_update.played
                 table_dict[team_name].won += table_update.won
