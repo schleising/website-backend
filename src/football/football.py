@@ -1,16 +1,110 @@
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from enum import Enum, auto
 import logging
 
 import requests
+from pymongo import ASCENDING
 from pymongo.operations import UpdateOne
 
-from . import HEADERS, pl_match_collection, pl_table_collection
+from . import HEADERS, pl_match_collection, pl_table_collection, live_pl_table_collection
 
-from .models import Table, Matches, Match, MatchStatus
+from .models import Table, LiveTableItem, Matches, Match, MatchStatus
 
 from task_scheduler import TaskScheduler
 
 UPDATE_DELTA = timedelta(seconds=10)
+
+class TeamStatus(Enum):
+    winning = auto()
+    losing = auto()
+    drawing = auto()
+
+@dataclass
+class TableUpdate:
+    match_status: MatchStatus
+    goals_for: int
+    goals_against: int
+
+    @property
+    def played(self) -> int:
+        if self.match_status.has_started:
+            return 1
+        else:
+            return 0
+
+    @property
+    def goal_difference(self) -> int:
+        if self.match_status.has_started:
+            return self.goals_for - self.goals_against
+        else:
+            return 0
+
+    @property
+    def team_status(self) -> TeamStatus:
+        if self.match_status.has_started:
+            gd = self.goal_difference
+
+            if gd == 0:
+                return TeamStatus.drawing
+            elif gd > 0:
+                return TeamStatus.winning
+            else:
+                return TeamStatus.losing
+        else:
+            return TeamStatus.drawing
+
+    @property
+    def won(self) -> int:
+        if self.match_status.has_started:
+            match self.team_status:
+                case TeamStatus.winning:
+                    return 1
+                case TeamStatus.losing:
+                    return 0
+                case TeamStatus.drawing:
+                    return 0
+        else:
+            return 0
+
+    @property
+    def draw(self) -> int:
+        if self.match_status.has_started:
+            match self.team_status:
+                case TeamStatus.winning:
+                    return 0
+                case TeamStatus.losing:
+                    return 0
+                case TeamStatus.drawing:
+                    return 1
+        else:
+            return 0
+
+    @property
+    def lost(self) -> int:
+        if self.match_status.has_started:
+            match self.team_status:
+                case TeamStatus.winning:
+                    return 0
+                case TeamStatus.losing:
+                    return 1
+                case TeamStatus.drawing:
+                    return 0
+        else:
+            return 0
+
+    @property
+    def points(self) -> int:
+        if self.match_status.has_started:
+            match self.team_status:
+                case TeamStatus.winning:
+                    return 3
+                case TeamStatus.losing:
+                    return 0
+                case TeamStatus.drawing:
+                    return 1
+        else:
+            return 0
 
 class Football:
     def __init__(self, scheduler: TaskScheduler) -> None:
@@ -36,11 +130,11 @@ class Football:
         # Schedule the check for todays matches one minute later
         self.scheduler.schedule_task(next_match_update_time + timedelta(minutes=1), self.get_todays_matches, timedelta(days=1))
 
-        # Get todays matches now
-        self.get_todays_matches()
-
         # Get the table now
         self.get_table()
+
+        # Get todays matches now
+        self.get_todays_matches()
 
     def get_season_matches(self) -> None:
         self.get_matches_between_dates(datetime(2022, 7, 1), datetime(2023, 6, 30))
@@ -51,6 +145,8 @@ class Football:
         if matches is not None:
             for match in matches:
                 logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "TBD":3} {match.score.full_time.away if match.score.full_time.away is not None else "TBD":3} {match.away_team.short_name:14} {match.status}')
+
+        self.update_live_table(matches)
 
         self.schedule_live_updates(matches)
 
@@ -94,6 +190,11 @@ class Football:
         else:
             logging.info(f'Download Error: {response.status_code}')
             return None
+
+        # for match in match_list:
+        #     match.status = MatchStatus.in_play
+        #     match.score.full_time.home = 1
+        #     match.score.full_time.away = 0
 
         return match_list
 
@@ -146,3 +247,77 @@ class Football:
 
                 for table_entry in table.standings[0].table:
                     logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+
+    def update_live_table(self, matches: list[Match] | None) -> None:
+        table_dict: dict[str, LiveTableItem] = {}
+
+        if pl_table_collection is not None:
+            # Get the table from the DB
+            table_cursor = pl_table_collection.find({}).sort('position', ASCENDING)
+
+            table_list = [LiveTableItem(**table_item) for table_item in table_cursor]
+
+            # Create a dict indexed by team name
+            table_dict = {table_item.team.short_name: table_item for table_item in table_list}
+
+            update_dict: dict[str, TableUpdate] = {}
+
+            # Go through today's matches to see if any teams need an update
+            if matches is not None:
+                for match in matches:
+                    if match.status.has_started and match.score.full_time.home is not None and match.score.full_time.away is not None:
+                        home_update = TableUpdate(match.status, match.score.full_time.home, match.score.full_time.away)
+                        update_dict[match.home_team.short_name] = home_update
+
+                        away_update = TableUpdate(match.status, match.score.full_time.away, match.score.full_time.home)
+                        update_dict[match.away_team.short_name] = away_update
+
+            # Update the table entry for the teams that need an update
+            for team_name, table_update in update_dict.items():
+                table_dict[team_name].status = table_update.match_status
+                table_dict[team_name].played_games += table_update.played
+                table_dict[team_name].won += table_update.won
+                table_dict[team_name].draw += table_update.draw
+                table_dict[team_name].lost += table_update.lost
+                table_dict[team_name].points += table_update.points
+                table_dict[team_name].goals_for += table_update.goals_for
+                table_dict[team_name].goals_against += table_update.goals_against
+                table_dict[team_name].goal_difference += table_update.goal_difference
+
+            # Calculate the new positions
+            table_list = [table_item for table_item in table_dict.values()]
+            table_list = self.update_live_positions(table_list)
+
+            # Write the updated table to the DB
+            if live_pl_table_collection is not None:
+                logging.info('Writing Live Table')
+                try:
+                    logging.info('Creating Live Table Operations')
+                    operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.dict() }, upsert=True) for table_entry in table_list]
+                    live_pl_table_collection.bulk_write(operations)
+                except:
+                    logging.error('Failed to Write Live Table to DB')
+                else:
+                    logging.info('Live Table Written')
+
+            for table_entry in table_list:
+                logging.info(f'Live: {table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+
+    def update_live_positions(self, table_list: list[LiveTableItem]) -> list[LiveTableItem]:
+        # Sort by team name ascending
+        table_list = sorted(table_list, key=lambda table_item: table_item.team.short_name)
+
+        # Sort by goals for descending
+        table_list = sorted(table_list, key=lambda table_item: table_item.goals_for, reverse=True)
+
+        # Sort by goal difference descending
+        table_list = sorted(table_list, key=lambda table_item: table_item.goal_difference, reverse=True)
+
+        # Sort by points descending
+        table_list = sorted(table_list, key=lambda table_item: table_item.points, reverse=True)
+
+        # Add the new position value
+        for position, table_item in enumerate(table_list):
+            table_item.position = position + 1
+
+        return table_list

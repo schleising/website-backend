@@ -9,6 +9,7 @@ mongo_db.set_database('web_database')
 
 pl_match_collection = mongo_db.get_collection('pl_matches')
 pl_table_collection = mongo_db.get_collection('pl_table')
+live_pl_table_collection = mongo_db.get_collection('live_pl_table')
 
 # Try to read the api key from the secret file
 try:
