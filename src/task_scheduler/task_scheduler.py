@@ -9,14 +9,14 @@ import logging
 class Task:
     time: datetime
     function: Callable
-    frequency: timedelta | None = None
+    interval: timedelta | None = None
 
 class TaskScheduler:
     def __init__(self) -> None:
         # Initialise an empty list of tasks
         self.task_list: list[Task] = []
 
-    def schedule_task(self, time: datetime, function: Callable, frequency: timedelta | None = None) -> bool:
+    def schedule_task(self, time: datetime, function: Callable, interval: timedelta | None = None) -> bool:
         # Ensure the task run time is stored in UTC
         utc_time = time.astimezone(timezone.utc)
 
@@ -25,7 +25,7 @@ class TaskScheduler:
             utc_time = datetime.now(timezone.utc)
 
         # Add the task
-        self.task_list.append(Task(utc_time, function, frequency))
+        self.task_list.append(Task(utc_time, function, interval))
         logging.info(f'Task added')
         return True
 
@@ -40,9 +40,9 @@ class TaskScheduler:
             if task.time < datetime.now(timezone.utc):
 
                 # Check whether the task is periodic
-                if task.frequency is not None:
+                if task.interval is not None:
                     # If so schedule the next iteration of the task
-                    self.schedule_task(task.time + task.frequency, task.function, task.frequency)
+                    self.schedule_task(task.time + task.interval, task.function, task.interval)
 
                 # Add the task to the list of runnable tasks
                 runnable_tasks.append(task)
