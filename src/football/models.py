@@ -15,6 +15,25 @@ class MatchStatus(str, Enum):
     cancelled = 'CANCELLED'
     awarded = 'AWARDED'
 
+    def __str__(self) -> str:
+        match self:
+            case self.scheduled | self.timed | self.awarded:
+                return 'Not Started'
+            case self.in_play:
+                return 'In Play'
+            case self.paused:
+                return 'Half Time'
+            case self.finished:
+                return 'Full Time'
+            case self.suspended:
+                return 'Suspended'
+            case self.postponed:
+                return 'Postponed'
+            case self.cancelled:
+                return 'Cancelled'
+            case _:
+                return 'Error'
+
     @property
     def has_started(self) -> bool:
         match self:
