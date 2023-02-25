@@ -8,6 +8,8 @@ services:
   #   volumes:
   #     - ./src:/src:ro
   #   restart: always
+  #   extra_hosts:
+  #       - "host.docker.internal:host-gateway"
 
   mongodb:
     image: mongo:4.4.18
