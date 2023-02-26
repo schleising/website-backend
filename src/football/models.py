@@ -168,6 +168,7 @@ class Match(BaseModel):
     season: Season
     id: int
     utc_date: datetime = Field(..., alias='utcDate')
+    local_date: datetime | None = None
     status: MatchStatus
     matchday: int
     stage: str
