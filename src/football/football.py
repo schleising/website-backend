@@ -275,6 +275,15 @@ class Football:
                 table_dict[team_name].has_started = table_update.match_status.has_started
                 table_dict[team_name].is_halftime = table_update.match_status.is_halftime
                 table_dict[team_name].has_finished = table_update.match_status.has_finished
+                table_dict[team_name].score_string = f'{table_update.goals_for} - {table_update.goals_against}'
+
+                if table_update.goals_for > table_update.goals_against:
+                    table_dict[team_name].css_class = 'live-position winning'
+                elif table_update.goals_for < table_update.goals_against:
+                    table_dict[team_name].css_class = 'live-position losing'
+                else:
+                    table_dict[team_name].css_class = 'live-position drawing'
+
                 table_dict[team_name].played_games += table_update.played
                 table_dict[team_name].won += table_update.won
                 table_dict[team_name].draw += table_update.draw

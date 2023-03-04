@@ -112,6 +112,8 @@ class LiveTableItem(TableItem):
     has_started: bool = False
     is_halftime: bool = False
     has_finished: bool = False
+    score_string: str | None = None
+    css_class: str | None = None
 
 class Standing(BaseModel):
     stage: str
