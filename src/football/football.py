@@ -144,7 +144,7 @@ class Football:
 
         if matches is not None:
             for match in matches:
-                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "TBD":3} {match.score.full_time.away if match.score.full_time.away is not None else "TBD":3} {match.away_team.short_name:14} {match.status}')
+                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "-":>2} {match.score.full_time.away if match.score.full_time.away is not None else "-":>2} {match.away_team.short_name:14} {match.status}')
 
         self.update_live_table(matches)
 
