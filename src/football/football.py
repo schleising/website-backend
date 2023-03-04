@@ -284,6 +284,9 @@ class Football:
                 else:
                     table_dict[team_name].css_class = 'live-position drawing'
 
+                if table_update.match_status.has_started and not table_update.match_status.has_finished:
+                    table_dict[team_name].css_class = f'{table_dict[team_name].css_class} in-play'
+
                 table_dict[team_name].played_games += table_update.played
                 table_dict[team_name].won += table_update.won
                 table_dict[team_name].draw += table_update.draw
