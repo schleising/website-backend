@@ -9,7 +9,7 @@ from pymongo.operations import UpdateOne
 
 from . import HEADERS, pl_match_collection, pl_table_collection, live_pl_table_collection
 
-from .models import Table, LiveTableItem, Matches, Match, MatchStatus
+from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
 
 from task_scheduler import TaskScheduler
 
@@ -258,6 +258,26 @@ class Football:
             # Create a dict indexed by team name
             table_dict = {table_item.team.short_name: table_item for table_item in table_list}
 
+            # Add the form characters
+            for table_item in table_dict.values():
+                # Split out the W, D, L characters into a list
+                form_list = table_item.form.split(',')
+
+                # Reverse the list so the most recent game is last
+                form_list.reverse()
+
+                for form_item in form_list:
+                    match form_item:
+                        case 'W':
+                            table_item.form_list.append(FormItem(character=form_item, css_class='form-win'))
+                        case 'D':
+                            table_item.form_list.append(FormItem(character=form_item, css_class='form-draw'))
+                        case 'L':
+                            table_item.form_list.append(FormItem(character=form_item, css_class='form-loss'))
+                        case _:
+                            # Will catch the form being empty at the start of the season
+                            pass
+
             update_dict: dict[str, TableUpdate] = {}
 
             # Go through today's matches to see if any teams need an update
@@ -280,10 +300,19 @@ class Football:
                 match table_update.team_status:
                     case TeamStatus.winning:
                         table_dict[team_name].css_class = 'live-position winning'
+                        if table_dict[team_name].form_list:
+                            table_dict[team_name].form_list.pop(0)
+                        table_dict[team_name].form_list.append(FormItem(character='W', css_class='form-win'))
                     case TeamStatus.losing:
                         table_dict[team_name].css_class = 'live-position losing'
+                        if table_dict[team_name].form_list:
+                            table_dict[team_name].form_list.pop(0)
+                        table_dict[team_name].form_list.append(FormItem(character='L', css_class='form-loss'))
                     case TeamStatus.drawing:
                         table_dict[team_name].css_class = 'live-position drawing'
+                        if table_dict[team_name].form_list:
+                            table_dict[team_name].form_list.pop(0)
+                        table_dict[team_name].form_list.append(FormItem(character='D', css_class='form-draw'))
 
                 if table_update.match_status.has_started and not table_update.match_status.has_finished:
                     table_dict[team_name].css_class = f'{table_dict[team_name].css_class} in-play'

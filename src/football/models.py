@@ -108,12 +108,17 @@ class TableItem(BaseModel):
     class Config:
         allow_population_by_field_name = True
 
+class FormItem(BaseModel):
+    character: str
+    css_class: str
+
 class LiveTableItem(TableItem):
     has_started: bool = False
     is_halftime: bool = False
     has_finished: bool = False
     score_string: str | None = None
     css_class: str | None = None
+    form_list: list[FormItem] = []
 
 class Standing(BaseModel):
     stage: str
