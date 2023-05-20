@@ -166,7 +166,7 @@ class Referee(BaseModel):
     id: int
     name: str
     type: str
-    nationality: str
+    nationality: str | None
 
 
 class Match(BaseModel):
