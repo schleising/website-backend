@@ -77,7 +77,7 @@ class Season(BaseModel):
     start_date: str = Field(..., alias='startDate')
     end_date: str = Field(..., alias='endDate')
     current_matchday: int = Field(..., alias='currentMatchday')
-    winner: str | None
+    winner: str | None = None
 
     class Config:
         allow_population_by_field_name = True
