@@ -72,22 +72,22 @@ class Competition(BaseModel):
     type: str
     emblem: str
 
-class Season(BaseModel):
-    id: int
-    start_date: str = Field(..., alias='startDate')
-    end_date: str = Field(..., alias='endDate')
-    current_matchday: int = Field(..., alias='currentMatchday')
-    winner: str | None = None
-
-    class Config:
-        allow_population_by_field_name = True
-
 class Team(BaseModel):
     id: int
     name: str
     short_name: str = Field(..., alias='shortName')
     tla: str
     crest: str
+
+    class Config:
+        allow_population_by_field_name = True
+
+class Season(BaseModel):
+    id: int
+    start_date: str = Field(..., alias='startDate')
+    end_date: str = Field(..., alias='endDate')
+    current_matchday: int = Field(..., alias='currentMatchday')
+    winner: Team | None = None
 
     class Config:
         allow_population_by_field_name = True
