@@ -1,1 +1,1 @@
-host.docker.internal
+mongodb
