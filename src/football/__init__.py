@@ -7,8 +7,8 @@ mongo_db = BackendDatabase()
 
 mongo_db.set_database('web_database')
 
-pl_match_collection = mongo_db.get_collection('pl_matches')
-pl_table_collection = mongo_db.get_collection('pl_table')
+pl_match_collection = mongo_db.get_collection('pl_matches_2023_2024')
+pl_table_collection = mongo_db.get_collection('pl_table_2023_2024')
 live_pl_table_collection = mongo_db.get_collection('live_pl_table')
 
 # Try to read the api key from the secret file

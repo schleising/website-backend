@@ -133,11 +133,14 @@ class Football:
         # Get the table now
         self.get_table()
 
+        # Get this seasons matches now
+        self.get_season_matches()
+
         # Get todays matches now
         self.get_todays_matches()
 
     def get_season_matches(self) -> None:
-        self.get_matches_between_dates(datetime(2022, 7, 1), datetime(2023, 6, 30))
+        self.get_matches_between_dates(datetime(2023, 7, 1), datetime(2024, 6, 30))
 
     def get_todays_matches(self) -> None:
         matches = self.get_matches_between_dates(datetime.now(timezone.utc), datetime.now(timezone.utc))
@@ -221,8 +224,15 @@ class Football:
 
     def get_table(self) -> None:
         logging.info('Getting Table')
+
+        # Get the date, if it is before the season starts, use the start date, otherwise use today's date
+        if datetime.now(timezone.utc).date() < datetime(2023, 8, 15).date():
+            table_date = datetime(2023, 8, 15).date()
+        else:
+            table_date = datetime.now(timezone.utc).date()
+
         try:
-            response = requests.get(f'https://api.football-data.org/v4/competitions/PL/standings/?date={datetime.now(timezone.utc).date()}', headers=HEADERS, timeout=5)
+            response = requests.get(f'https://api.football-data.org/v4/competitions/PL/standings/?date={table_date}', headers=HEADERS, timeout=5)
         except requests.Timeout:
             logging.error('Table Download Timed Out')
         else:
@@ -230,6 +240,9 @@ class Football:
 
             if response.status_code == requests.status_codes.codes.ok:
                 table = Table.parse_raw(response.content)
+
+                logging.info(f'Season Start: {table.season.start_date}')
+                logging.info(f'Season End  : {table.season.end_date}')
 
                 # Update the database with the table
                 if pl_table_collection is not None:
@@ -242,9 +255,13 @@ class Football:
                         logging.error('Failed to Write Table to DB')
                     else:
                         logging.info('Table Written')
+                else:
+                    logging.error('No Database Connection')
 
                 for table_entry in table.standings[0].table:
                     logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+            else:
+                logging.info(f'Download Error: {response.status_code}')
 
     def update_live_table(self, matches: list[Match] | None) -> None:
         table_dict: dict[str, LiveTableItem] = {}
