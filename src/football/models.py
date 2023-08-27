@@ -80,7 +80,7 @@ class Team(BaseModel):
     crest: str
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class Season(BaseModel):
     id: int
@@ -90,7 +90,7 @@ class Season(BaseModel):
     winner: Team | None = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class TableItem(BaseModel):
     position: int
@@ -106,7 +106,7 @@ class TableItem(BaseModel):
     goal_difference: int = Field(..., alias='goalDifference')
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class FormItem(BaseModel):
     character: str
@@ -156,7 +156,7 @@ class Score(BaseModel):
     half_time: HalfTime = Field(..., alias='halfTime')
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class Odds(BaseModel):
     msg: str
@@ -188,7 +188,7 @@ class Match(BaseModel):
     referees: list[Referee]
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class Matches(BaseModel):
     filters: Filters
@@ -197,7 +197,7 @@ class Matches(BaseModel):
     matches: list[Match]
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 class MatchList(BaseModel):
     matches: list[Match]
