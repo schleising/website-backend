@@ -175,7 +175,7 @@ class Football:
             match_list = [match for match in matches.matches]
 
             logging.info('Creating Operations')
-            operations = [UpdateOne({'id': match.id}, { '$set': match.dict() }, upsert=True) for match in match_list]
+            operations = [UpdateOne({'id': match.id}, { '$set': match.model_dump() }, upsert=True) for match in match_list]
 
             if pl_match_collection is None:
                 logging.error('No Database Connection')
@@ -249,7 +249,7 @@ class Football:
                     logging.info('Writing Table')
                     try:
                         logging.info('Creating Table Operations')
-                        operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.dict() }, upsert=True) for table_entry in table.standings[0].table]
+                        operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.model_dump() }, upsert=True) for table_entry in table.standings[0].table]
                         pl_table_collection.bulk_write(operations)
                     except:
                         logging.error('Failed to Write Table to DB')
@@ -352,7 +352,7 @@ class Football:
                 logging.info('Writing Live Table')
                 try:
                     logging.info('Creating Live Table Operations')
-                    operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.dict() }, upsert=True) for table_entry in table_list]
+                    operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.model_dump() }, upsert=True) for table_entry in table_list]
                     live_pl_table_collection.bulk_write(operations)
                 except:
                     logging.error('Failed to Write Live Table to DB')
