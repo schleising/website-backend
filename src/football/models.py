@@ -154,7 +154,7 @@ class LiveTableItem(TableItem):
 class Standing(BaseModel):
     stage: str
     type: str
-    group: str | None
+    group: str | None = None
     table: list[TableItem]
 
 class Table(BaseModel):
@@ -171,17 +171,17 @@ class ResultSet(BaseModel):
     played: int | None = None
 
 class FullTime(BaseModel):
-    home: int | None
-    away: int | None
+    home: int | None = None
+    away: int | None = None
 
 
 class HalfTime(BaseModel):
-    home: int | None
-    away: int | None
+    home: int | None = None
+    away: int | None = None
 
 
 class Score(BaseModel):
-    winner: str | None
+    winner: str | None = None
     duration: str
     full_time: FullTime = Field(..., alias='fullTime')
     half_time: HalfTime = Field(..., alias='halfTime')
@@ -197,7 +197,7 @@ class Referee(BaseModel):
     id: int
     name: str
     type: str
-    nationality: str | None
+    nationality: str | None = None
 
 
 class Match(BaseModel):
@@ -210,7 +210,7 @@ class Match(BaseModel):
     status: MatchStatus
     matchday: int
     stage: str
-    group: str | None
+    group: str | None = None
     last_updated: datetime = Field(..., alias='lastUpdated')
     home_team: Team = Field(..., alias='homeTeam')
     away_team: Team = Field(..., alias='awayTeam')
