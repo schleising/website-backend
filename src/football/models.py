@@ -135,9 +135,9 @@ class Table(BaseModel):
 
 class ResultSet(BaseModel):
     count: int
-    first: str | None
-    last: str | None
-    played: int | None
+    first: str | None = None
+    last: str | None = None
+    played: int | None = None
 
 class FullTime(BaseModel):
     home: int | None

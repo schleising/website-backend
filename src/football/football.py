@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from enum import Enum, auto
 import logging
+from pydantic import ValidationError
 
 import requests
 from pymongo import ASCENDING
@@ -170,7 +171,13 @@ class Football:
 
         if response.status_code == requests.status_codes.codes.ok:
             logging.info('Parsing Matches')
-            matches = Matches.parse_raw(response.content)
+
+            try:
+                matches = Matches.parse_raw(response.content)
+            except ValidationError as e:
+                logging.error(f'Failed to Parse Matches: {response.content}')
+                logging.error(e.json(indent=2))
+                return None
 
             match_list = [match for match in matches.matches]
 
