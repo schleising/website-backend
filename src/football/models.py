@@ -4,6 +4,37 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+class ShortName(str, Enum):
+    arsenal = 'Arsenal'
+    aston_villa = 'Aston Villa'
+    bournemouth = 'Bournemouth'
+    brentford = 'Brentford'
+    brighton = 'Brighton Hove'
+    burnley = 'Burnley'
+    chelsea = 'Chelsea'
+    crystal_palace = 'Crystal Palace'
+    everton = 'Everton'
+    fulham = 'Fulham'
+    liverpool = 'Liverpool'
+    luton = 'Luton Town'
+    man_city = 'Man City'
+    man_utd = 'Man United'
+    newcastle = 'Newcastle'
+    nottingham = 'Nottingham'
+    sheffield_utd = 'Sheffield Utd'
+    tottentham = 'Tottenham'
+    west_ham = 'West Ham'
+    wolves = 'Wolverhampton'
+
+    def __str__(self) -> str:
+        match self.value:
+            case self.brighton:
+                return 'Brighton'
+            case self.wolves:
+                return 'Wolves'
+            case _:
+                return str(self.value)
+
 class MatchStatus(str, Enum):
     scheduled = 'SCHEDULED'
     timed = 'TIMED'
@@ -75,7 +106,7 @@ class Competition(BaseModel):
 class Team(BaseModel):
     id: int
     name: str
-    short_name: str = Field(..., alias='shortName')
+    short_name: ShortName = Field(..., alias='shortName')
     tla: str
     crest: str
 
@@ -201,3 +232,15 @@ class Matches(BaseModel):
 
 class MatchList(BaseModel):
     matches: list[Match]
+
+# Simplified match type for gpt4
+class SimplifiedMatch(BaseModel):
+    status: str
+    start_time_iso: str
+    home_team: str
+    home_team_score: int | None = None
+    away_team: str
+    away_team_score: int | None = None
+
+class SimplifiedMatchList(BaseModel):
+    matches: list[SimplifiedMatch]
