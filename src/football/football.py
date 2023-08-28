@@ -173,7 +173,7 @@ class Football:
             logging.info('Parsing Matches')
 
             try:
-                matches = Matches.parse_raw(response.content)
+                matches = Matches.model_validate_json(response.content)
             except ValidationError as e:
                 logging.error(f'Failed to Parse Matches: {response.content}')
                 logging.error(e.json(indent=2))
@@ -246,7 +246,7 @@ class Football:
             logging.info('Table Downloaded')
 
             if response.status_code == requests.status_codes.codes.ok:
-                table = Table.parse_raw(response.content)
+                table = Table.model_validate_json(response.content)
 
                 logging.info(f'Season Start: {table.season.start_date}')
                 logging.info(f'Season End  : {table.season.end_date}')
