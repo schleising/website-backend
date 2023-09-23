@@ -324,17 +324,17 @@ class Football:
                 match table_update.team_status:
                     case TeamStatus.winning:
                         table_dict[team_name].css_class = 'live-position winning'
-                        if len(table_dict[team_name].form_list) > 5:
+                        if len(table_dict[team_name].form_list) >= 5:
                             table_dict[team_name].form_list.pop(0)
                         table_dict[team_name].form_list.append(FormItem(character='W', css_class='form-win'))
                     case TeamStatus.losing:
                         table_dict[team_name].css_class = 'live-position losing'
-                        if len(table_dict[team_name].form_list) > 5:
+                        if len(table_dict[team_name].form_list) >= 5:
                             table_dict[team_name].form_list.pop(0)
                         table_dict[team_name].form_list.append(FormItem(character='L', css_class='form-loss'))
                     case TeamStatus.drawing:
                         table_dict[team_name].css_class = 'live-position drawing'
-                        if len(table_dict[team_name].form_list) > 5:
+                        if len(table_dict[team_name].form_list) >= 5:
                             table_dict[team_name].form_list.pop(0)
                         table_dict[team_name].form_list.append(FormItem(character='D', css_class='form-draw'))
 
