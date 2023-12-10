@@ -350,6 +350,10 @@ class Football:
                 table_dict[team_name].goals_against += table_update.goals_against
                 table_dict[team_name].goal_difference += table_update.goal_difference
 
+            # Everton have been docked 10 points
+            if 'Everton' in table_dict:
+                table_dict['Everton'].points -= 10
+
             # Calculate the new positions
             table_list = [table_item for table_item in table_dict.values()]
             table_list = self.update_live_positions(table_list)
