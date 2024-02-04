@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import logging
 from threading import Event
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -18,7 +19,11 @@ class DynDns:
 
     def get_external_ip(self) -> str:
         # Get the current external IP
-        response = requests.get(dyn_dns_details.get_external_ip_url)
+        try:
+            response = requests.get(dyn_dns_details.get_external_ip_url)
+        except requests.exceptions.RequestException as e:
+            logging.error(f'Failed to get the external IP address. Exception: {e}')
+            return dyn_dns_details.current_external_ip
 
         # If the request was successful, return the new IP address otherwise return the current one
         if response.status_code == 200:
@@ -29,21 +34,28 @@ class DynDns:
             return dyn_dns_details.current_external_ip
 
     def update_cloudflare_dns(self, new_external_ip: str) -> bool:
+        # Get the time in teh Europe/London timezone
+        london_tz = ZoneInfo('Europe/London')
+        london_time = datetime.now(london_tz)
+
         # Create the payload to update the DNS record
         payload = {
             "content": new_external_ip,
             "name": "schleising.net",
-            "proxied": False,
+            "proxied": True,
             "type": "A",
-            "comment": "Domain verification record",
-            "ttl": 3600
+            "comment": f"Updated to {new_external_ip} on {london_time.strftime('%Y-%m-%d %H:%M:%S')}",
         }
 
         # Log the new external IP
         logging.info(f'Updating DNS record to {new_external_ip}.')
 
         # Send the request to update the DNS record
-        response = requests.request("PATCH", CLOUDFLARE_DNS_UPDATE_URL, json=payload, headers=CLOUDFLARE_HEADERS)
+        try:
+            response = requests.request("PATCH", CLOUDFLARE_DNS_UPDATE_URL, json=payload, headers=CLOUDFLARE_HEADERS)
+        except requests.exceptions.RequestException as e:
+            logging.error(f'Failed to update the DNS record. Exception: {e}')
+            return False
 
         if response.status_code == 200:
             logging.info(f'DNS record updated successfully to {new_external_ip}.')
