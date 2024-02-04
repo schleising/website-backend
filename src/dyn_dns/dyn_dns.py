@@ -9,7 +9,7 @@ from notify_run import Notify
 
 from task_scheduler import TaskScheduler
 
-from . import CLOUDFLARE_HEADERS, CLOUDFLARE_DNS_UPDATE_URL, DYN_DNS_FILE, dyn_dns_details, NOTIFY_RUN_ENDPOINT
+from . import CLOUDFLARE_HEADERS, CLOUDFLARE_DNS_UPDATE_URL, NOTIFY_RUN_ENDPOINT, dyn_dns_details, DNS_INFO_COLLECTION
 
 class DynDns:
     def __init__(self, scheduler: TaskScheduler) -> None:
@@ -80,6 +80,7 @@ class DynDns:
         if new_external_ip != dyn_dns_details.current_external_ip:
             # Log that the external IP has changed
             logging.error(f'External IP address has changed from {dyn_dns_details.current_external_ip} to {new_external_ip}.')
+
             if self.update_cloudflare_dns(new_external_ip):
                 # If the notify run endpoint is set, send a notification
                 if self.notify:
@@ -88,13 +89,13 @@ class DynDns:
                 # If the DNS record was updated successfully, update the current external IP
                 dyn_dns_details.current_external_ip = new_external_ip
 
-                # Save the new external IP to the file
-                with open(DYN_DNS_FILE, 'w', encoding='utf-8') as dyn_dns_file:
-                    dyn_dns_file.write(dyn_dns_details.model_dump_json(indent=2))
-        else:
-            # Send a notification if the notify run endpoint is set
-            if self.notify:
-                self.notify.send(f'DNS Update Failed\nTried to update to {new_external_ip} but it failed. Current IP Address is {dyn_dns_details.current_external_ip}.')
+                # Update the database with the new external IP
+                if DNS_INFO_COLLECTION is not None:
+                    DNS_INFO_COLLECTION.update_one({}, {'$set': {'current_external_ip': new_external_ip}})
+            else:
+                # Send a notification if the notify run endpoint is set
+                if self.notify:
+                    self.notify.send(f'DNS Update Failed\nTried to update to {new_external_ip} but it failed. Current IP Address is {dyn_dns_details.current_external_ip}.')
 
 def dyn_dns_loop(terminate_event: Event) -> None:
     # Create a task scheduler

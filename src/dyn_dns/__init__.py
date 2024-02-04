@@ -1,8 +1,9 @@
 import sys
-import json
-from pathlib import Path
+import logging
 
 from pydantic import BaseModel, ValidationError
+
+from database.database import BackendDatabase
 
 # Model to store the dyn dns details
 class DynDnsDetails(BaseModel):
@@ -13,29 +14,36 @@ class DynDnsDetails(BaseModel):
     cloudflare_dns_record_id: str
     cloudflare_api_token: str
 
-# Path to the dyn dns details file
-DYN_DNS_FILE = Path('src/dyn_dns/dyn_dns.json')
+# Get a backend database instance
+database = BackendDatabase()
 
-# Try to read the dyn dns details from the file
-try:
-    with open(DYN_DNS_FILE, 'r', encoding='utf-8') as dyn_dns_file:
-        # If the file is valid, store the details
-        dyn_dns_details = DynDnsDetails.model_validate(json.load(dyn_dns_file))
-except FileNotFoundError:
-    # If this fails there's nothing we can do, so exit
-    print('No dyn_dns.json file found')
-    sys.exit()
-except ValidationError as e:
-    # If the file is invalid, print the error and exit
-    print(f'Invalid dyn_dns.json file: {e}')
-    sys.exit()
+# Set the database in use
+database.set_database('web_database')
 
-# Get the Notify Run Endpoint
-try:
-    with open('notify_run_endpoint.txt', 'r', encoding='utf-8') as notify_run_endpoint_file:
-        NOTIFY_RUN_ENDPOINT = notify_run_endpoint_file.read().strip()
-except FileNotFoundError:
-    NOTIFY_RUN_ENDPOINT = None
+# Set the collection in use
+DNS_INFO_COLLECTION = database.get_collection('dns_info')
+
+if DNS_INFO_COLLECTION is not None:
+    try:
+        # Get the dyn dns details from the database
+        dns_info = DNS_INFO_COLLECTION.find_one({})
+
+        # If the dns_info is not None, create a DynDnsDetails instance
+        if dns_info is not None:
+            # Create a DynDnsDetails instance
+            dyn_dns_details = DynDnsDetails(**dns_info)
+        else:
+            # If the dns_info is None, log an error and exit
+            logging.error('Failed to get the dyn dns details from the database.')
+            sys.exit()
+    except ValidationError as e:
+        # If the validation fails, log the error and exit
+        logging.error(f'Failed to get the dyn dns details from the database. Error: {e}')
+        sys.exit()
+else:
+    # If the collection is None, log an error and exit
+    logging.error('Failed to get the collection from the database.')
+    sys.exit()
 
 # Set the cloudflare URL to update the DNS record
 CLOUDFLARE_DNS_UPDATE_URL = f'{dyn_dns_details.cloudflare_api_base_url}/zones/{dyn_dns_details.cloudflare_zone_id}/dns_records/{dyn_dns_details.cloudflare_dns_record_id}'
@@ -45,6 +53,13 @@ CLOUDFLARE_HEADERS = {
     "Content-Type": "application/json",
     "Authorization": f"bearer {dyn_dns_details.cloudflare_api_token}",
 }
+
+# Get the Notify Run Endpoint
+try:
+    with open('notify_run_endpoint.txt', 'r', encoding='utf-8') as notify_run_endpoint_file:
+        NOTIFY_RUN_ENDPOINT = notify_run_endpoint_file.read().strip()
+except FileNotFoundError:
+    NOTIFY_RUN_ENDPOINT = None
 
 from .dyn_dns import dyn_dns_loop
 
