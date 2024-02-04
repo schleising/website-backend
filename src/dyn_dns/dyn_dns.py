@@ -34,7 +34,7 @@ class DynDns:
             return dyn_dns_details.current_external_ip
 
     def update_cloudflare_dns(self, new_external_ip: str) -> bool:
-        # Get the time in teh Europe/London timezone
+        # Get the time in the Europe/London timezone
         london_tz = ZoneInfo('Europe/London')
         london_time = datetime.now(london_tz)
 
@@ -48,7 +48,7 @@ class DynDns:
         }
 
         # Log the new external IP
-        logging.info(f'Updating DNS record to {new_external_ip}.')
+        logging.error(f'Updating DNS record to {new_external_ip}.')
 
         # Send the request to update the DNS record
         try:
@@ -58,7 +58,7 @@ class DynDns:
             return False
 
         if response.status_code == 200:
-            logging.info(f'DNS record updated successfully to {new_external_ip}.')
+            logging.error(f'DNS record updated successfully to {new_external_ip}.')
             return True
         else:
             logging.error(f'Failed to update the DNS record. Status code: {response.status_code}')
@@ -71,7 +71,7 @@ class DynDns:
         # If the current external IP is different to the one stored in the dyn dns details, update the dns
         if new_external_ip != dyn_dns_details.current_external_ip:
             # Log that the external IP has changed
-            logging.info(f'External IP address has changed from {dyn_dns_details.current_external_ip} to {new_external_ip}.')
+            logging.error(f'External IP address has changed from {dyn_dns_details.current_external_ip} to {new_external_ip}.')
             if self.update_cloudflare_dns(new_external_ip):
                 # If the DNS record was updated successfully, update the current external IP
                 dyn_dns_details.current_external_ip = new_external_ip
