@@ -56,9 +56,11 @@ CLOUDFLARE_HEADERS = {
 
 # Get the Notify Run Endpoint
 try:
-    with open('notify_run_endpoint.txt', 'r', encoding='utf-8') as notify_run_endpoint_file:
+    with open('src/notify_run_endpoint.txt', 'r', encoding='utf-8') as notify_run_endpoint_file:
         NOTIFY_RUN_ENDPOINT = notify_run_endpoint_file.read().strip()
 except FileNotFoundError:
+    # If the file is not found, log an error and set the NOTIFY_RUN_ENDPOINT to None
+    logging.error('Failed to get the notify run endpoint. File not found.')
     NOTIFY_RUN_ENDPOINT = None
 
 from .dyn_dns import dyn_dns_loop
