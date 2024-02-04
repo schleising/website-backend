@@ -148,14 +148,14 @@ class Football:
 
         if matches is not None:
             for match in matches:
-                logging.info(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "-":>2} {match.score.full_time.away if match.score.full_time.away is not None else "-":>2} {match.away_team.short_name:14} {match.status}')
+                logging.debug(f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "-":>2} {match.score.full_time.away if match.score.full_time.away is not None else "-":>2} {match.away_team.short_name:14} {match.status}')
 
         self.update_live_table(matches)
 
         self.schedule_live_updates(matches)
 
     def get_matches_between_dates(self, from_date: datetime, to_date: datetime) -> list[Match] | None:
-        logging.info('Getting Matches')
+        logging.debug('Getting Matches')
 
         match_list: list[Match] = []
 
@@ -170,7 +170,7 @@ class Football:
             return None
 
         if response.status_code == requests.status_codes.codes.ok:
-            logging.info('Parsing Matches')
+            logging.debug('Parsing Matches')
 
             try:
                 matches = Matches.model_validate_json(response.content)
@@ -181,24 +181,24 @@ class Football:
 
             match_list = [match for match in matches.matches]
 
-            logging.info('Creating Operations')
+            logging.debug('Creating Operations')
             operations = [UpdateOne({'id': match.id}, { '$set': match.model_dump() }, upsert=True) for match in match_list]
 
             if pl_match_collection is None:
                 logging.error('No Database Connection')
             elif not operations:
-                logging.info('No Matches to Write')
+                logging.debug('No Matches to Write')
             else:
-                logging.info(f'Writing {len(operations)} Entries')
+                logging.debug(f'Writing {len(operations)} Entries')
 
                 try:
                     pl_match_collection.bulk_write(operations)
                 except:
                     logging.error("Failed to Write Matches to DB")
 
-                logging.info('Matches Added')
+                logging.debug('Matches Added')
         else:
-            logging.info(f'Download Error: {response.status_code}')
+            logging.error(f'Download Error: {response.status_code}')
             return None
 
         return match_list
@@ -206,7 +206,7 @@ class Football:
     def schedule_live_updates(self, matches: list[Match] | None) -> None:
         if matches is not None:
             if any(match.status in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended] for match in matches):
-                logging.info('At least one match is in play')
+                logging.debug('At least one match is in play')
 
                 self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
 
@@ -220,17 +220,17 @@ class Football:
                 if next_match_utc < datetime.now(timezone.utc):
                     next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
 
-                logging.info(f'Next match time {next_match_utc}')
+                logging.debug(f'Next match time {next_match_utc}')
                 
                 self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
             else:
-                logging.info('No more matches today')
+                logging.debug('No more matches today')
         else:
-            logging.info('Rescheduling Match Update Due to Error')
+            logging.error('Rescheduling Match Update Due to Error')
             self.scheduler.schedule_task(datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches)
 
     def get_table(self) -> None:
-        logging.info('Getting Table')
+        logging.debug('Getting Table')
 
         # Get the date, if it is before the season starts, use the start date, otherwise use today's date
         if datetime.now(timezone.utc).date() < datetime(2023, 8, 15).date():
@@ -243,32 +243,32 @@ class Football:
         except requests.Timeout:
             logging.error('Table Download Timed Out')
         else:
-            logging.info('Table Downloaded')
+            logging.debug('Table Downloaded')
 
             if response.status_code == requests.status_codes.codes.ok:
                 table = Table.model_validate_json(response.content)
 
-                logging.info(f'Season Start: {table.season.start_date}')
-                logging.info(f'Season End  : {table.season.end_date}')
+                logging.debug(f'Season Start: {table.season.start_date}')
+                logging.debug(f'Season End  : {table.season.end_date}')
 
                 # Update the database with the table
                 if pl_table_collection is not None:
-                    logging.info('Writing Table')
+                    logging.debug('Writing Table')
                     try:
-                        logging.info('Creating Table Operations')
+                        logging.debug('Creating Table Operations')
                         operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.model_dump() }, upsert=True) for table_entry in table.standings[0].table]
                         pl_table_collection.bulk_write(operations)
                     except:
                         logging.error('Failed to Write Table to DB')
                     else:
-                        logging.info('Table Written')
+                        logging.debug('Table Written')
                 else:
                     logging.error('No Database Connection')
 
                 for table_entry in table.standings[0].table:
-                    logging.info(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+                    logging.debug(f'{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
             else:
-                logging.info(f'Download Error: {response.status_code}')
+                logging.error(f'Download Error: {response.status_code}')
 
     def update_live_table(self, matches: list[Match] | None) -> None:
         table_dict: dict[str, LiveTableItem] = {}
@@ -360,18 +360,18 @@ class Football:
 
             # Write the updated table to the DB
             if live_pl_table_collection is not None:
-                logging.info('Writing Live Table')
+                logging.debug('Writing Live Table')
                 try:
-                    logging.info('Creating Live Table Operations')
+                    logging.debug('Creating Live Table Operations')
                     operations = [UpdateOne({'team.id': table_entry.team.id}, { '$set': table_entry.model_dump() }, upsert=True) for table_entry in table_list]
                     live_pl_table_collection.bulk_write(operations)
                 except:
                     logging.error('Failed to Write Live Table to DB')
                 else:
-                    logging.info('Live Table Written')
+                    logging.debug('Live Table Written')
 
             for table_entry in table_list:
-                logging.info(f'Live: {table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
+                logging.debug(f'Live: {table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}')
 
     def update_live_positions(self, table_list: list[LiveTableItem]) -> list[LiveTableItem]:
         # Sort by team name ascending

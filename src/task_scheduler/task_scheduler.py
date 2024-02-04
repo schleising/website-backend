@@ -26,7 +26,7 @@ class TaskScheduler:
 
         # Add the task
         self.task_list.append(Task(utc_time, function, interval))
-        logging.info(f'Task added')
+        logging.debug(f'Task added')
         return True
 
     def get_runnable_tasks(self) -> list[Task]:
