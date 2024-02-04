@@ -6,6 +6,7 @@ from types import FrameType
 import logging
 
 from football import football_loop
+from dyn_dns import dyn_dns_loop
 
 def terminate(signal: int, _: FrameType | None) -> None:
     # Change the sig_type into a string
@@ -51,6 +52,7 @@ if __name__ == '__main__':
     # Submit the futures
     with ThreadPoolExecutor() as executor:
         futures.append(executor.submit(football_loop, terminate_event))
+        futures.append(executor.submit(dyn_dns_loop, terminate_event))
 
         # If any of the threads raises an exception then exit to output it
         wait(futures, return_when=FIRST_EXCEPTION)
