@@ -5,9 +5,11 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from notify_run import Notify
+
 from task_scheduler import TaskScheduler
 
-from . import CLOUDFLARE_HEADERS, CLOUDFLARE_DNS_UPDATE_URL, DYN_DNS_FILE, dyn_dns_details
+from . import CLOUDFLARE_HEADERS, CLOUDFLARE_DNS_UPDATE_URL, DYN_DNS_FILE, dyn_dns_details, NOTIFY_RUN_ENDPOINT
 
 class DynDns:
     def __init__(self, scheduler: TaskScheduler) -> None:
@@ -16,6 +18,12 @@ class DynDns:
 
         # Schedule the task to check the external IP every minute and update the DNS if it has changed
         self.scheduler.schedule_task(datetime.now(timezone.utc), self.update_dns, timedelta(minutes=1))
+
+        # If the notify run endpoint is set, initialise the notify run object
+        if NOTIFY_RUN_ENDPOINT:
+            self.notify = Notify(endpoint=NOTIFY_RUN_ENDPOINT)
+        else:
+            self.notify = None
 
     def get_external_ip(self) -> str:
         # Get the current external IP
@@ -73,12 +81,20 @@ class DynDns:
             # Log that the external IP has changed
             logging.error(f'External IP address has changed from {dyn_dns_details.current_external_ip} to {new_external_ip}.')
             if self.update_cloudflare_dns(new_external_ip):
+                # If the notify run endpoint is set, send a notification
+                if self.notify:
+                    self.notify.send(f'DNS Update Succeeded\nIP Address Changed from {dyn_dns_details.current_external_ip} to {new_external_ip}.')
+
                 # If the DNS record was updated successfully, update the current external IP
                 dyn_dns_details.current_external_ip = new_external_ip
 
                 # Save the new external IP to the file
                 with open(DYN_DNS_FILE, 'w', encoding='utf-8') as dyn_dns_file:
                     dyn_dns_file.write(dyn_dns_details.model_dump_json(indent=2))
+        else:
+            # Send a notification if the notify run endpoint is set
+            if self.notify:
+                self.notify.send(f'DNS Update Failed\nTried to update to {new_external_ip} but it failed. Current IP Address is {dyn_dns_details.current_external_ip}.')
 
 def dyn_dns_loop(terminate_event: Event) -> None:
     # Create a task scheduler

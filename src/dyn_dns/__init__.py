@@ -30,6 +30,13 @@ except ValidationError as e:
     print(f'Invalid dyn_dns.json file: {e}')
     sys.exit()
 
+# Get the Notify Run Endpoint
+try:
+    with open('notify_run_endpoint.txt', 'r', encoding='utf-8') as notify_run_endpoint_file:
+        NOTIFY_RUN_ENDPOINT = notify_run_endpoint_file.read().strip()
+except FileNotFoundError:
+    NOTIFY_RUN_ENDPOINT = None
+
 # Set the cloudflare URL to update the DNS record
 CLOUDFLARE_DNS_UPDATE_URL = f'{dyn_dns_details.cloudflare_api_base_url}/zones/{dyn_dns_details.cloudflare_zone_id}/dns_records/{dyn_dns_details.cloudflare_dns_record_id}'
 
