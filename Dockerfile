@@ -1,5 +1,5 @@
 # Start with the Python Alpine image as the build image
-FROM python:3.11-alpine as build
+FROM python:3-alpine as build
 
 # Install build-base and libffi headers
 RUN apk update && \
@@ -10,7 +10,7 @@ COPY ./requirements.txt /requirements.txt
 RUN pip install --user --no-cache-dir -r /requirements.txt
 
 # Start witha fresh image after installing the necessary Python packages
-FROM python:3.11-alpine
+FROM python:3-alpine
 
 # Copy the python packages only from the build stage
 COPY --from=build /root/.local /root/.local
