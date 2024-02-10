@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from enum import Enum, auto
 import logging
+from zoneinfo import ZoneInfo
+
 from pydantic import ValidationError
 
 import requests
@@ -180,6 +182,16 @@ class Football:
                 return None
 
             match_list = [match for match in matches.matches]
+
+            # If a match utc time is midnight, set it to 3pm in the Europe/London timezone
+            for match in match_list:
+                # Check if the time is midnight
+                if match.utc_date.time() == time(hour=0):
+                    # Set the time to 3pm in the Europe/London timezone as timezone UTC
+                    match.utc_date = datetime(match.utc_date.year, match.utc_date.month, match.utc_date.day, 15, tzinfo=ZoneInfo('Europe/London')).astimezone(timezone.utc)
+
+                    # Log the change
+                    logging.debug(f'Match Time Changed: {match.utc_date}')
 
             logging.debug('Creating Operations')
             operations = [UpdateOne({'id': match.id}, { '$set': match.model_dump() }, upsert=True) for match in match_list]
