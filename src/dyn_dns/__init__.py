@@ -35,24 +35,28 @@ if DNS_INFO_COLLECTION is not None:
         else:
             # If the dns_info is None, log an error and exit
             logging.error('Failed to get the dyn dns details from the database.')
-            sys.exit()
+            dyn_dns_details = None
     except ValidationError as e:
         # If the validation fails, log the error and exit
         logging.error(f'Failed to get the dyn dns details from the database. Error: {e}')
-        sys.exit()
+        dyn_dns_details = None
 else:
     # If the collection is None, log an error and exit
     logging.error('Failed to get the collection from the database.')
-    sys.exit()
+    dyn_dns_details = None
 
-# Set the cloudflare URL to update the DNS record
-CLOUDFLARE_DNS_UPDATE_URL = f'{dyn_dns_details.cloudflare_api_base_url}/zones/{dyn_dns_details.cloudflare_zone_id}/dns_records/{dyn_dns_details.cloudflare_dns_record_id}'
+if dyn_dns_details is None:
+    CLOUDFLARE_DNS_UPDATE_URL = None
+    CLOUDFLARE_HEADERS = None
+else:
+    # Set the cloudflare URL to update the DNS record
+    CLOUDFLARE_DNS_UPDATE_URL = f'{dyn_dns_details.cloudflare_api_base_url}/zones/{dyn_dns_details.cloudflare_zone_id}/dns_records/{dyn_dns_details.cloudflare_dns_record_id}'
 
-# Set the headers to include the api key
-CLOUDFLARE_HEADERS = {
-    "Content-Type": "application/json",
-    "Authorization": f"bearer {dyn_dns_details.cloudflare_api_token}",
-}
+    # Set the headers to include the api key
+    CLOUDFLARE_HEADERS = {
+        "Content-Type": "application/json",
+        "Authorization": f"bearer {dyn_dns_details.cloudflare_api_token}",
+    }
 
 # Get the Notify Run Endpoint
 try:

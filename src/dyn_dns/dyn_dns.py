@@ -26,6 +26,11 @@ class DynDns:
             self.notify = None
 
     def get_external_ip(self) -> str:
+        # Check whether the dyn dns details are set
+        if dyn_dns_details is None:
+            logging.error('Dyn DNS details are not set.')
+            return ''
+
         # Get the current external IP
         try:
             response = requests.get(dyn_dns_details.get_external_ip_url)
@@ -73,6 +78,11 @@ class DynDns:
             return False
 
     def update_dns(self) -> None:
+        # Check whether the dyn dns details are set
+        if dyn_dns_details is None:
+            logging.error('Dyn DNS details are not set.')
+            return
+
         # Get the new external IP
         new_external_ip = self.get_external_ip()
 
