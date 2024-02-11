@@ -3,14 +3,18 @@ from datetime import datetime, time, timedelta, timezone
 from enum import Enum, auto
 import logging
 from zoneinfo import ZoneInfo
+import json
 
 from pydantic import ValidationError
 
 import requests
+
 from pymongo import ASCENDING
 from pymongo.operations import UpdateOne
 
-from . import HEADERS, pl_match_collection, pl_table_collection, live_pl_table_collection
+from pywebpush import webpush, WebPushException
+
+from . import HEADERS, pl_match_collection, pl_table_collection, live_pl_table_collection, football_push
 
 from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
 
@@ -156,6 +160,57 @@ class Football:
 
         self.schedule_live_updates(matches)
 
+    # Send a push notification for the change in match status
+    def send_notification(self, title: str, message: str) -> None:
+        # Get the subscriptions from the database
+        if football_push is not None:
+            subscriptions = football_push.find({})
+
+            # Load the claims
+            with open('/src/secrets/claims.json', 'r') as file:
+                claims = json.load(file)
+
+            # Send the push notifications
+            for subscription in subscriptions:
+                logging.debug(f'Sending notification to {subscription}')
+
+                try:
+                    webpush(
+                        subscription_info=subscription,
+                        data=json.dumps({
+                            'title': title,
+                            'body': message
+                        }),
+                        vapid_private_key='/src/secrets/private_key.pem',
+                        vapid_claims=claims
+                    )
+                except WebPushException as ex:
+                    logging.error(f'Error sending notification: {ex}')
+
+                    if ex.response and ex.response.json():
+                        extra = ex.response.json()
+                        logging.error(f'Remote service replied with a {extra.code}:{extra.errno}, {extra.message}')
+                else:
+                    logging.debug('Notification sent successfully')
+
+    def CompareMatchStates(self, previous_match: Match | None, current_match: Match) -> None:
+        if previous_match is None:
+            logging.error('No Previous Match')
+            return
+
+        if previous_match.status != current_match.status:
+            logging.debug(f'Match Status Change: {previous_match.status} -> {current_match.status}')
+            self.send_notification(
+                title=str(current_match.status),
+                message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}'
+            )
+        if previous_match.score.full_time.home != current_match.score.full_time.home or previous_match.score.full_time.away != current_match.score.full_time.away:
+            logging.debug(f'Match Score Change: {previous_match.score.full_time.home} - {previous_match.score.full_time.away} -> {current_match.score.full_time.home} - {current_match.score.full_time.away}')
+            self.send_notification(
+                title=str(current_match.status),
+                message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}'
+            )
+
     def get_matches_between_dates(self, from_date: datetime, to_date: datetime) -> list[Match] | None:
         logging.debug('Getting Matches')
 
@@ -192,6 +247,12 @@ class Football:
 
                     # Log the change
                     logging.debug(f'Match Time Changed: {match.utc_date}')
+
+                # Compare the current match state with the previous match state
+                if pl_match_collection is not None:
+                    previous_match = pl_match_collection.find_one({'id': match.id})
+
+                    self.CompareMatchStates(previous_match, match)
 
             logging.debug('Creating Operations')
             operations = [UpdateOne({'id': match.id}, { '$set': match.model_dump() }, upsert=True) for match in match_list]

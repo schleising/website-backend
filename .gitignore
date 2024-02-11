@@ -131,3 +131,4 @@ dmypy.json
 # Ignore secret key files
 src/football/football_api_token.txt
 src/notify_run_endpoint.txt
+src/secrets/
