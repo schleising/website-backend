@@ -164,10 +164,10 @@ class Football:
     def send_notification(self, title: str, message: str) -> None:
         # Get the subscriptions from the database
         if football_push is not None:
-            subscriptions = football_push.find({})
+            subscriptions = football_push.find()
 
             # Load the claims
-            with open('/src/secrets/claims.json', 'r') as file:
+            with open('src/secrets/claims.json', 'r') as file:
                 claims = json.load(file)
 
             # Send the push notifications
@@ -251,6 +251,8 @@ class Football:
                 # Compare the current match state with the previous match state
                 if pl_match_collection is not None:
                     previous_match = pl_match_collection.find_one({'id': match.id})
+                    if previous_match is not None:
+                        previous_match = Match(**previous_match)
 
                     self.CompareMatchStates(previous_match, match)
 
