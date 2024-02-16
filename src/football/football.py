@@ -177,12 +177,22 @@ class Football:
                 try:
                     webpush(
                         subscription_info=subscription,
-                        data=json.dumps({
-                            'title': title,
-                            'body': message
-                        }),
-                        vapid_private_key='/src/secrets/private_key.pem',
-                        vapid_claims=claims
+                        data=json.dumps(
+                            {
+                                "title": title,
+                                "body": message,
+                                "icon": '/icons/football/android-chrome-192x192.png',
+                                "badge": '/icons/football/badge-192x192.png',
+                                "url": '/football/',
+                                "requireInteraction": True,
+                            }
+                        ),
+                        headers={
+                            "Urgency": 'normal',
+                        },
+                        ttl=60 * 60 * 24 * 7,
+                        vapid_private_key="/src/secrets/private_key.pem",
+                        vapid_claims=claims,
                     )
                 except WebPushException as ex:
                     logging.error(f'Error sending notification: {ex}')
