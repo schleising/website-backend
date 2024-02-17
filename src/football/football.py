@@ -5,7 +5,7 @@ import logging
 from zoneinfo import ZoneInfo
 import json
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 import requests
 
@@ -21,6 +21,10 @@ from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
 from task_scheduler import TaskScheduler
 
 UPDATE_DELTA = timedelta(seconds=10)
+
+class Notification(BaseModel):
+    title: str
+    message: str
 
 class TeamStatus(Enum):
     winning = auto()
@@ -207,19 +211,46 @@ class Football:
         if previous_match is None:
             logging.error('No Previous Match')
             return
+        
+        notification: Notification | None = None
 
         if previous_match.status != current_match.status:
             logging.debug(f'Match Status Change: {previous_match.status} -> {current_match.status}')
-            self.send_notification(
-                title=str(current_match.status),
-                message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}'
-            )
-        if previous_match.score.full_time.home != current_match.score.full_time.home or previous_match.score.full_time.away != current_match.score.full_time.away:
-            logging.debug(f'Match Score Change: {previous_match.score.full_time.home} - {previous_match.score.full_time.away} -> {current_match.score.full_time.home} - {current_match.score.full_time.away}')
-            self.send_notification(
-                title=str(current_match.status),
-                message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}'
-            )
+            notification = Notification(title=str(current_match.status), message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}')
+
+        if (
+            previous_match.score.full_time.home is not None and
+            previous_match.score.full_time.away is not None and
+            current_match.score.full_time.home is not None and
+            current_match.score.full_time.away is not None
+        ):
+            if previous_match.score.full_time.home < current_match.score.full_time.home:
+                logging.debug(f'{current_match.home_team.short_name} Goal: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}')
+                notification = Notification(
+                    title=f'{current_match.home_team.short_name} Goal',
+                    message=f'{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}'
+                )
+            elif previous_match.score.full_time.away < current_match.score.full_time.away:
+                logging.debug(f'{current_match.away_team.short_name} Goal: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}')
+                notification = Notification(
+                    title=f'{current_match.away_team.short_name} Goal',
+                    message=f'{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}'
+                )
+            elif previous_match.score.full_time.home > current_match.score.full_time.home:
+                logging.debug(f'{current_match.home_team.short_name} VAR Correction: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}')
+                notification = Notification(
+                    title=f'{current_match.home_team.short_name} VAR Correction',
+                    message=f'{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}'
+                )
+            elif previous_match.score.full_time.away > current_match.score.full_time.away:
+                logging.debug(f'{current_match.away_team.short_name} VAR Correction: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}')
+                notification = Notification(
+                    title=f'{current_match.away_team.short_name} VAR Correction',
+                    message=f'{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}'
+                )
+
+        if notification is not None:
+            self.send_notification(notification.title, notification.message)
 
     def get_matches_between_dates(self, from_date: datetime, to_date: datetime) -> list[Match] | None:
         logging.debug('Getting Matches')
