@@ -113,6 +113,10 @@ class Team(BaseModel):
     class Config:
         populate_by_name = True
 
+    @property
+    def local_crest(self) -> str:
+        return f'/images/football/crests/{self.crest.split('/')[-1].replace("svg", "png")}'
+
 class Season(BaseModel):
     id: int
     start_date: str = Field(..., alias='startDate')
