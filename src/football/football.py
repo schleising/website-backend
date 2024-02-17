@@ -216,7 +216,7 @@ class Football:
 
         if previous_match.status != current_match.status:
             logging.debug(f'Match Status Change: {previous_match.status} -> {current_match.status}')
-            notification = Notification(title=str(current_match.status), message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "-"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "-"} {current_match.away_team.short_name}')
+            notification = Notification(title=str(current_match.status), message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "0"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "0"} {current_match.away_team.short_name}')
 
         if (
             previous_match.score.full_time.home is not None and
