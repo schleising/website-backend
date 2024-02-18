@@ -14,7 +14,7 @@ football_push = mongo_db.get_collection('football_push_subscriptions')
 
 # Try to read the api key from the secret file
 try:
-    with open(Path('src/football/football_api_token.txt'), 'r', encoding='utf-8') as secretFile:
+    with open(Path('src/secrets/football_api_token.txt'), 'r', encoding='utf-8') as secretFile:
         api_key = secretFile.read().strip()
 except:
     # If this fails there's nothing we can do, so exit
