@@ -2,19 +2,19 @@ annotated-types==0.6.0
 certifi==2024.2.2
 cffi==1.16.0
 charset-normalizer==3.3.2
-cryptography==42.0.2
-dnspython==2.5.0
+cryptography==42.0.5
+dnspython==2.6.1
 http_ece==1.2.0
 idna==3.6
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 py-vapid==1.9.0
 pycparser==2.21
-pydantic==2.6.1
-pydantic_core==2.16.2
-pymongo==4.6.1
+pydantic==2.6.2
+pydantic_core==2.16.3
+pymongo==4.6.2
 PyQRCode==1.2.1
 pywebpush==1.14.1
 requests==2.31.0
 six==1.16.0
 typing_extensions==4.9.0
-urllib3==2.2.0
+urllib3==2.2.1
