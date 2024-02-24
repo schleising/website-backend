@@ -32,6 +32,8 @@ class ShortName(str, Enum):
                 return 'Brighton'
             case self.wolves:
                 return 'Wolves'
+            case self.nottingham:
+                return 'Notts Forest'
             case _:
                 return str(self.value)
 
