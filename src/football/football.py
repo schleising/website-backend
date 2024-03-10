@@ -179,6 +179,9 @@ class Football:
             if icon is None:
                 icon = '/icons/football/android-chrome-192x192.png'
 
+            # Log the notification
+            logging.info(f'Sending Notification: {title} - {message}')
+
             # Send the push notifications
             for subscription in subscriptions:
                 logging.debug(f'Sending notification to {subscription}')
