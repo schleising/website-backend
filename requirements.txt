@@ -13,7 +13,7 @@ idna==3.6
 multidict==6.0.5
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 py-vapid==1.9.0
-pycparser==2.21
+pycparser==2.22
 pydantic==2.6.4
 pydantic_core==2.16.3
 pymongo==4.6.3
