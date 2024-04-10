@@ -489,7 +489,7 @@ class Football:
 
             # Everton have been docked 6 points
             if 'Everton' in table_dict:
-                table_dict['Everton'].points -= 6
+                table_dict['Everton'].points -= 8
             if 'Nottingham' in table_dict:
                 table_dict['Nottingham'].points -= 4
 
