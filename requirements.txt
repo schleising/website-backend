@@ -5,7 +5,7 @@ attrs==23.2.0
 certifi==2024.2.2
 cffi==1.16.0
 charset-normalizer==3.3.2
-cryptography==42.0.6
+cryptography==42.0.7
 dnspython==2.6.1
 frozenlist==1.4.1
 http_ece==1.2.0
@@ -16,7 +16,7 @@ py-vapid==1.9.0
 pycparser==2.22
 pydantic==2.7.1
 pydantic_core==2.18.2
-pymongo==4.7.1
+pymongo==4.7.2
 PyQRCode==1.2.1
 pywebpush==2.0.0
 requests==2.31.0
