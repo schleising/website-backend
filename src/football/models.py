@@ -25,6 +25,9 @@ class ShortName(str, Enum):
     tottentham = 'Tottenham'
     west_ham = 'West Ham'
     wolves = 'Wolverhampton'
+    southampton = 'Southampton'
+    ipswich = 'Ipswich Town'
+    leicester = 'Leicester City'
 
     def __str__(self) -> str:
         match self.value:
@@ -34,6 +37,10 @@ class ShortName(str, Enum):
                 return 'Wolves'
             case self.nottingham:
                 return 'Notts Forest'
+            case self.ipswich:
+                return 'Ipswich'
+            case self.leicester:
+                return 'Leicester'
             case _:
                 return str(self.value)
 

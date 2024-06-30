@@ -152,7 +152,7 @@ class Football:
         self.get_todays_matches()
 
     def get_season_matches(self) -> None:
-        self.get_matches_between_dates(datetime(2023, 7, 1), datetime(2024, 6, 30))
+        self.get_matches_between_dates(datetime(2024, 7, 1), datetime(2025, 6, 30))
 
     def get_todays_matches(self) -> None:
         matches = self.get_matches_between_dates(datetime.now(timezone.utc), datetime.now(timezone.utc))
@@ -376,8 +376,8 @@ class Football:
         logging.debug('Getting Table')
 
         # Get the date, if it is before the season starts, use the start date, otherwise use today's date
-        if datetime.now(timezone.utc).date() < datetime(2023, 8, 15).date():
-            table_date = datetime(2023, 8, 15).date()
+        if datetime.now(timezone.utc).date() < datetime(2024, 8, 15).date():
+            table_date = datetime(2024, 8, 15).date()
         else:
             table_date = datetime.now(timezone.utc).date()
 
@@ -494,10 +494,10 @@ class Football:
                 table_dict[team_name].goal_difference += table_update.goal_difference
 
             # Everton have been docked 6 points
-            if 'Everton' in table_dict:
-                table_dict['Everton'].points -= 8
-            if 'Nottingham' in table_dict:
-                table_dict['Nottingham'].points -= 4
+            # if 'Everton' in table_dict:
+            #     table_dict['Everton'].points -= 8
+            # if 'Nottingham' in table_dict:
+            #     table_dict['Nottingham'].points -= 4
 
             # Calculate the new positions
             table_list = [table_item for table_item in table_dict.values()]
