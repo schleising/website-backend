@@ -1,5 +1,5 @@
 # Start with the Python Alpine image as the build image
-FROM python:3-alpine as build
+FROM python:3-alpine AS build
 
 # Install build-base and libffi headers
 RUN apk update && \
