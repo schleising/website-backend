@@ -40,7 +40,8 @@ if __name__ == '__main__':
     terminate_event = Event()
 
     # Initialise logging
-    logging.basicConfig(format='Backend: %(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+    log_level = logging.INFO
+    logging.basicConfig(format='Backend: %(asctime)s - %(levelname)s - %(message)s', level=log_level)
 
     # Handle SIGTERM and SIGINT
     signal(SIGTERM, terminate)
@@ -51,8 +52,8 @@ if __name__ == '__main__':
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:
-        futures.append(executor.submit(football_loop, terminate_event))
-        futures.append(executor.submit(dyn_dns_loop, terminate_event))
+        futures.append(executor.submit(football_loop, terminate_event, log_level))
+        futures.append(executor.submit(dyn_dns_loop, terminate_event, log_level))
 
         # If any of the threads raises an exception then exit to output it
         wait(futures, return_when=FIRST_EXCEPTION)

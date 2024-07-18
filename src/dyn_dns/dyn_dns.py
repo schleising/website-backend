@@ -107,7 +107,10 @@ class DynDns:
                 if self.notify:
                     self.notify.send(f'DNS Update Failed\nTried to update to {new_external_ip} but it failed. Current IP Address is {dyn_dns_details.current_external_ip}.')
 
-def dyn_dns_loop(terminate_event: Event) -> None:
+def dyn_dns_loop(terminate_event: Event, log_level: int) -> None:
+    # Initialise logging
+    logging.basicConfig(format='Dyn DNS: %(asctime)s - %(levelname)s - %(message)s', level=log_level)
+
     # Create a task scheduler
     scheduler = TaskScheduler()
 
