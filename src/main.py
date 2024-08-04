@@ -7,19 +7,21 @@ import logging
 
 from football import football_loop
 from dyn_dns import dyn_dns_loop
+from sensors import sensors_loop
+
 
 def terminate(signal: int, _: FrameType | None) -> None:
     # Change the sig_type into a string
     match signal:
         case Signals.SIGINT:
-            sig_type = 'SIGINT'
+            sig_type = "SIGINT"
         case Signals.SIGTERM:
-            sig_type = 'SIGTERM'
+            sig_type = "SIGTERM"
         case _:
-            sig_type = 'UNKNOWN'
+            sig_type = "UNKNOWN"
 
     # Log the reason for exiting
-    logging.info(f'Exiting Threads due to {sig_type}')
+    logging.info(f"Exiting Threads due to {sig_type}")
 
     # Set the terminate event
     terminate_event.set()
@@ -30,9 +32,10 @@ def terminate(signal: int, _: FrameType | None) -> None:
             sleep(0.0001)
 
     # Log that the threads have exited
-    logging.info('Threads Exited')
+    logging.info("Threads Exited")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Initialise an empty futures array
     futures: list[Future] = []
 
@@ -41,19 +44,22 @@ if __name__ == '__main__':
 
     # Initialise logging
     log_level = logging.INFO
-    logging.basicConfig(format='Backend: %(asctime)s - %(levelname)s - %(message)s', level=log_level)
+    logging.basicConfig(
+        format="Backend: %(asctime)s - %(levelname)s - %(message)s", level=log_level
+    )
 
     # Handle SIGTERM and SIGINT
     signal(SIGTERM, terminate)
     signal(SIGINT, terminate)
 
     # Log that the backend is intialised
-    logging.info('Backend Initialising')
+    logging.info("Backend Initialising")
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:
         futures.append(executor.submit(football_loop, terminate_event, log_level))
         futures.append(executor.submit(dyn_dns_loop, terminate_event, log_level))
+        futures.append(executor.submit(sensors_loop, terminate_event, log_level))
 
         # If any of the threads raises an exception then exit to output it
         wait(futures, return_when=FIRST_EXCEPTION)
