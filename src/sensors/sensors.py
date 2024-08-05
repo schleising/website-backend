@@ -33,7 +33,7 @@ class Sensors:
 
         # Schedule the task to check the external IP every minute and update the DNS if it has changed
         self.scheduler.schedule_task(
-            datetime.now(timezone.utc), self._get_sensors_data, timedelta(minutes=1)
+            datetime.now(timezone.utc), self._get_sensors_data, timedelta(minutes=5)
         )
 
     def _get_sensors_data(self):
