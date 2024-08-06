@@ -73,7 +73,10 @@ class Sensors:
 
             # Check if the request was successful
             if response.status_code != requests.codes.ok:
-                response.raise_for_status()
+                logging.error(
+                    f"Failed to get the status of the device: {sensor.device_name}"
+                )
+                return
 
             # Parse the response into a GoveeStatusResponse object
             govee_status_response = GoveeStatusResponse.model_validate_json(
@@ -120,10 +123,7 @@ class Sensors:
 
                     # Log the temperature
                     logging.info(f"{device_name} temperature: {celsius:.1f}°C")
-                case (
-                    InstanceType.HUMIDITY,
-                    HumidityValue(current_humidity=humidity),
-                ):
+                case InstanceType.HUMIDITY, HumidityValue(current_humidity=humidity):
                     # Add the humidity to the sensor data
                     sensor_data.humidity = humidity
 
