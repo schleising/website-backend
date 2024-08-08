@@ -38,7 +38,7 @@ class BackendDatabase:
         """
         if db_name is not None:
             self.current_db = self.client[db_name]
-            return self.current_db[collection_name]
+            return self.current_db[collection_name] if self.current_db is not None else None
         elif self.current_db is not None:
             return self.current_db[collection_name]
         else:
