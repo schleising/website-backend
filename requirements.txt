@@ -10,13 +10,13 @@ cryptography==43.0.1
 dnspython==2.6.1
 frozenlist==1.4.1
 http_ece==1.2.1
-idna==3.8
-multidict==6.0.5
+idna==3.9
+multidict==6.1.0
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 py-vapid==1.9.1
 pycparser==2.22
-pydantic==2.9.0
-pydantic_core==2.23.2
+pydantic==2.9.1
+pydantic_core==2.23.3
 pymongo==4.8.0
 PyQRCode==1.2.1
 pywebpush==2.0.0
@@ -24,5 +24,5 @@ requests==2.31.0
 six==1.16.0
 typing_extensions==4.12.2
 tzdata==2024.1
-urllib3==2.2.2
-yarl==1.10.0
+urllib3==2.2.3
+yarl==1.11.1
