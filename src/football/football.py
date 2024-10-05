@@ -20,7 +20,7 @@ from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
 
 from task_scheduler import TaskScheduler
 
-UPDATE_DELTA = timedelta(seconds=10)
+UPDATE_DELTA = timedelta(seconds=4)
 
 class Notification(BaseModel):
     title: str
