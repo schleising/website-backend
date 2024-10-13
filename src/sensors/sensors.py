@@ -3,6 +3,9 @@ import logging
 from threading import Event
 
 import requests
+from requests.exceptions import RequestException
+
+from pymongo.errors import ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect
 
 from task_scheduler import TaskScheduler
 
@@ -40,11 +43,15 @@ class Sensors:
         # Get the list of sensors from the database
         if SENSORS_COLLECTION is not None:
             # Get the sensors from the database ignoring the _id field
-            sensors_db = SENSORS_COLLECTION.find({})
+            try:
+                sensors_db = SENSORS_COLLECTION.find({})
+
+            except (ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect):
+                logging.error("Failed to connect to the database and get the sensors.")
+                return
 
             # Convert the sensors to a list of Device objects
             sensors = [Device.model_validate(sensor) for sensor in sensors_db]
-
         else:
             logging.error("Failed to get the sensors collection from the database.")
             return
@@ -62,14 +69,20 @@ class Sensors:
             data = request.model_dump(by_alias=True)
 
             # Get the status of the device
-            response = requests.post(
-                DEVICE_STATE_URL,
-                headers={
-                    "Content-Type": "application/json",
-                    "Govee-API-Key": GOVEE_API_KEY,
-                },
-                json=data,
-            )
+            try:
+                response = requests.post(
+                    DEVICE_STATE_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Govee-API-Key": GOVEE_API_KEY,
+                    },
+                    json=data,
+                )
+            except RequestException as e:
+                logging.error(
+                    f"Failed to get the status of the device: {sensor.device_name}, error: {e}"
+                )
+                return
 
             # Check if the request was successful
             if response.status_code != requests.codes.ok:
@@ -137,7 +150,13 @@ class Sensors:
 
         # Insert the sensor data into the database
         if SENSOR_DATA_COLLECTION is not None:
-            SENSOR_DATA_COLLECTION.insert_one(sensor_data.model_dump(by_alias=True))
+            try:
+                SENSOR_DATA_COLLECTION.insert_one(sensor_data.model_dump(by_alias=True))
+            except (ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect):
+                logging.error(
+                    "Failed to connect to the database and insert the sensor data."
+                )
+                return
 
 
 def sensors_loop(terminate_event: Event, log_level: int):
