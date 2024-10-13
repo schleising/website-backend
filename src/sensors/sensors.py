@@ -9,7 +9,7 @@ from pymongo.errors import ServerSelectionTimeoutError, NetworkTimeout, AutoReco
 
 from task_scheduler import TaskScheduler
 
-from utils.utils import farenheit_to_celsius
+from utils import farenheit_to_celsius
 
 from .models import (
     Device,
