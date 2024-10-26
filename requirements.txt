@@ -8,7 +8,7 @@ cffi==1.17.1
 charset-normalizer==3.4.0
 cryptography==43.0.3
 dnspython==2.7.0
-frozenlist==1.4.1
+frozenlist==1.5.0
 http_ece==1.2.1
 idna==3.10
 multidict==6.1.0
@@ -25,4 +25,4 @@ requests==2.31.0
 six==1.16.0
 typing_extensions==4.12.2
 urllib3==2.2.3
-yarl==1.15.5
+yarl==1.16.0
