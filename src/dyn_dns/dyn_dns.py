@@ -10,6 +10,16 @@ from notify_run import Notify
 from task_scheduler import TaskScheduler
 
 from . import (
+    SYNOLOGY_API_BASE_URL,
+    SYNOLOGY_AUTH_API,
+    SYNOLOGY_AUTH_URL,
+    SYNOLOGY_AUTH_VERSION,
+    SYNOLOGY_AUTH_LOGIN_METHOD,
+    SYNOLOGY_AUTH_LOGOUT_METHOD,
+    SYNOLOGY_GET_EXTERNAL_IP_API,
+    SYNOLOGY_GET_EXTERNAL_IP_URL,
+    SYNOLOGY_GET_EXTERNAL_IP_VERSION,
+    SYNOLOGY_GET_EXTERNAL_IP_METHOD,
     CLOUDFLARE_HEADERS,
     CLOUDFLARE_DNS_UPDATE_URL,
     NOTIFY_RUN_ENDPOINT,
@@ -25,7 +35,7 @@ class DynDns:
 
         # Schedule the task to check the external IP every minute and update the DNS if it has changed
         self.scheduler.schedule_task(
-            datetime.now(timezone.utc), self.update_dns, timedelta(minutes=1)
+            datetime.now(timezone.utc), self.update_dns, timedelta(seconds=10)
         )
 
         # If the notify run endpoint is set, initialise the notify run object
@@ -40,22 +50,102 @@ class DynDns:
             logging.error("Dyn DNS details are not set.")
             return ""
 
-        # Get the current external IP
+        # Log into the Synology API
         try:
-            response = requests.get(dyn_dns_details.get_external_ip_url)
+            response = requests.get(
+                url=f"{SYNOLOGY_API_BASE_URL}{SYNOLOGY_AUTH_URL}",
+                params={
+                    "api": SYNOLOGY_AUTH_API,
+                    "version": SYNOLOGY_AUTH_VERSION,
+                    "method": SYNOLOGY_AUTH_LOGIN_METHOD,
+                    "account": dyn_dns_details.synology_username,
+                    "passwd": dyn_dns_details.synology_password,
+                },
+            )
         except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to get the external IP address. Exception: {e}")
+            logging.error(f"Failed to log into the Synology API (1). Exception: {e}")
             return dyn_dns_details.current_external_ip
 
-        # If the request was successful, return the new IP address otherwise return the current one
-        if response.status_code == 200:
-            logging.debug(f'External IP address currently {response.json()["ip"]}')
-            return response.json()["ip"]
-        else:
+        # If the request was unsuccessful, log the error and return the current external IP
+        if response.status_code != requests.codes.ok:
             logging.error(
-                f"Failed to get the external IP address. Status code: {response.status_code}"
+                f"Failed to log into the Synology API (2). Status code: {response.status_code}"
             )
             return dyn_dns_details.current_external_ip
+
+        # Convert the response to json
+        response_json = response.json()
+
+        # Check whether the response was successful
+        if response_json["success"] is False:
+            logging.error(
+                f"Failed to log into the Synology API (3). Error: {response_json['error']}"
+            )
+            return dyn_dns_details.current_external_ip
+
+        # Put the session id in the cookies
+        cookies = {"id": response_json["data"]["sid"]}
+
+        # Get the external IP address
+        try:
+            response = requests.get(
+                url=f"{SYNOLOGY_API_BASE_URL}{SYNOLOGY_GET_EXTERNAL_IP_URL}",
+                params={
+                    "api": SYNOLOGY_GET_EXTERNAL_IP_API,
+                    "version": SYNOLOGY_GET_EXTERNAL_IP_VERSION,
+                    "method": SYNOLOGY_GET_EXTERNAL_IP_METHOD,
+                },
+                cookies=cookies,
+            )
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to get the external IP address (4). Exception: {e}")
+            return dyn_dns_details.current_external_ip
+
+        # If the request was unsuccessful, log the error and return the current external IP
+        if response.status_code != requests.codes.ok:
+            logging.error(
+                f"Failed to get the external IP address (5). Status code: {response.status_code}"
+            )
+            return dyn_dns_details.current_external_ip
+
+        # Convert the response to json
+        response_json = response.json()
+
+        # Check whether the response was successful
+        if response_json["success"] is False:
+            logging.error(
+                f"Failed to get the external IP address (6). Error: {response_json['error']}"
+            )
+            return dyn_dns_details.current_external_ip
+
+        # Get the external IP address
+        external_ip_address = response_json["data"][0]["ip"]
+        logging.debug(f"External IP address currently {external_ip_address}")
+
+        # Log out of the Synology API
+        try:
+            response = requests.get(
+                url=f"{SYNOLOGY_API_BASE_URL}{SYNOLOGY_AUTH_URL}",
+                params={
+                    "api": SYNOLOGY_AUTH_API,
+                    "version": SYNOLOGY_AUTH_VERSION,
+                    "method": SYNOLOGY_AUTH_LOGOUT_METHOD,
+                },
+                cookies=cookies,
+            )
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to log out of the Synology API (7). Exception: {e}")
+
+        # Convert the response to json
+        response_json = response.json()
+
+        # Check whether the response was successful
+        if response_json["success"] is False:
+            logging.error(
+                f"Failed to log out of the Synology API (8). Error: {response_json['error']}"
+            )
+
+        return external_ip_address
 
     def update_cloudflare_dns(self, new_external_ip: str) -> bool:
         # Get the time in the Europe/London timezone

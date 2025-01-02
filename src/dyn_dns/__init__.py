@@ -7,12 +7,26 @@ from database.database import BackendDatabase
 
 # Model to store the dyn dns details
 class DynDnsDetails(BaseModel):
-    get_external_ip_url: str
+    synology_username: str
+    synology_password: str
     current_external_ip: str
     cloudflare_api_base_url: str
     cloudflare_zone_id: str
     cloudflare_dns_record_id: str
     cloudflare_api_token: str
+
+
+SYNOLOGY_API_BASE_URL = "http://192.168.1.1:8000/webapi"
+SYNOLOGY_AUTH_API = "SYNO.API.Auth"
+SYNOLOGY_AUTH_URL = "/auth.cgi"
+SYNOLOGY_AUTH_VERSION = 3
+SYNOLOGY_AUTH_LOGIN_METHOD = "login"
+SYNOLOGY_AUTH_LOGOUT_METHOD = "logout"
+
+SYNOLOGY_GET_EXTERNAL_IP_API = "SYNO.Core.DDNS.ExtIP"
+SYNOLOGY_GET_EXTERNAL_IP_URL = "/entry.cgi"
+SYNOLOGY_GET_EXTERNAL_IP_VERSION = 1
+SYNOLOGY_GET_EXTERNAL_IP_METHOD = "list"
 
 
 # Get a backend database instance
