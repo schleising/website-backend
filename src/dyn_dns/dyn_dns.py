@@ -33,6 +33,9 @@ class DynDns:
         # Store the scheduler
         self.scheduler = scheduler
 
+        # Log whether an error has occurred
+        self.error = False
+
         # Schedule the task to check the external IP every minute and update the DNS if it has changed
         self.scheduler.schedule_task(
             datetime.now(timezone.utc), self.update_dns, timedelta(seconds=10)
@@ -64,6 +67,7 @@ class DynDns:
             )
         except requests.exceptions.RequestException as e:
             logging.error(f"Failed to log into the Synology API (1). Exception: {e}")
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # If the request was unsuccessful, log the error and return the current external IP
@@ -71,6 +75,7 @@ class DynDns:
             logging.error(
                 f"Failed to log into the Synology API (2). Status code: {response.status_code}"
             )
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # Convert the response to json
@@ -81,6 +86,7 @@ class DynDns:
             logging.error(
                 f"Failed to log into the Synology API (3). Error: {response_json['error']}"
             )
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # Put the session id in the cookies
@@ -99,6 +105,7 @@ class DynDns:
             )
         except requests.exceptions.RequestException as e:
             logging.error(f"Failed to get the external IP address (4). Exception: {e}")
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # If the request was unsuccessful, log the error and return the current external IP
@@ -106,6 +113,7 @@ class DynDns:
             logging.error(
                 f"Failed to get the external IP address (5). Status code: {response.status_code}"
             )
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # Convert the response to json
@@ -116,6 +124,7 @@ class DynDns:
             logging.error(
                 f"Failed to get the external IP address (6). Error: {response_json['error']}"
             )
+            self.error = True
             return dyn_dns_details.current_external_ip
 
         # Get the external IP address
@@ -144,6 +153,11 @@ class DynDns:
             logging.error(
                 f"Failed to log out of the Synology API (8). Error: {response_json['error']}"
             )
+
+        # If an error occurred previously, log that it has been resolved and reset the error flag
+        if self.error:
+            logging.info("Error cleared, successfully got the external IP address.")
+            self.error = False
 
         return external_ip_address
 
