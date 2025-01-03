@@ -126,7 +126,7 @@ class Sensors:
                     sensor_data.online = online
 
                     # Log the online status
-                    logging.info(f"{device_name} online: {online}")
+                    logging.debug(f"{device_name} online: {online}")
                 case InstanceType.TEMPERATURE, float(temperature):
                     # Convert the temperature to celsius
                     celsius = farenheit_to_celsius(temperature)
@@ -135,13 +135,13 @@ class Sensors:
                     sensor_data.temperature = celsius
 
                     # Log the temperature
-                    logging.info(f"{device_name} temperature: {celsius:.1f}°C")
+                    logging.debug(f"{device_name} temperature: {celsius:.1f}°C")
                 case InstanceType.HUMIDITY, HumidityValue(current_humidity=humidity):
                     # Add the humidity to the sensor data
                     sensor_data.humidity = humidity
 
                     # Log the humidity
-                    logging.info(f"{device_name} humidity: {humidity:.1f}%")
+                    logging.debug(f"{device_name} humidity: {humidity:.1f}%")
                 case _:
                     # Log the unknown capability
                     logging.error(
