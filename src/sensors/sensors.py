@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from threading import Event
 
+from pydantic import ValidationError
 import requests
 from requests.exceptions import RequestException
 
@@ -50,8 +51,15 @@ class Sensors:
                 logging.error("Failed to connect to the database and get the sensors.")
                 return
 
-            # Convert the sensors to a list of Device objects
-            sensors = [Device.model_validate(sensor) for sensor in sensors_db]
+            try:
+                # Convert the sensors to a list of Device objects
+                sensors = [Device.model_validate(sensor) for sensor in sensors_db]
+            except ValidationError as e:
+                logging.error(
+                    f"Failed to validate the sensors from the database. Exception: {e}"
+                )
+                logging.error(e.json(indent=2))
+                return
         else:
             logging.error("Failed to get the sensors collection from the database.")
             return
@@ -91,10 +99,16 @@ class Sensors:
                 )
                 return
 
-            # Parse the response into a GoveeStatusResponse object
-            govee_status_response = GoveeStatusResponse.model_validate_json(
-                response.text
-            )
+            try:
+                # Parse the response into a GoveeStatusResponse object
+                govee_status_response = GoveeStatusResponse.model_validate_json(
+                    response.text
+                )
+            except ValidationError as e:
+                logging.error(
+                    f"Failed to parse the response into a GoveeStatusResponse object: {e}"
+                )
+                return
 
             # Insert the sensor data into the database
             self._insert_sensor_data(sensor.device_name, govee_status_response)

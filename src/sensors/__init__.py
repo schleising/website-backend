@@ -1,5 +1,6 @@
 import logging
 
+from pydantic import ValidationError
 import requests
 
 from pymongo.errors import DuplicateKeyError
@@ -51,10 +52,11 @@ if SENSORS_COLLECTION is not None:
             try:
                 # Parse the response
                 devices = GoveeDeviceResponse.model_validate_json(response.text).data
-            except Exception as e:
+            except ValidationError as e:
                 logging.error(
                     f"Failed to parse the Govee device response. Exception: {e}"
                 )
+                logging.error(e.json(indent=2))
                 devices = None
 
             if devices is not None:

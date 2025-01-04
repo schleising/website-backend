@@ -389,7 +389,12 @@ class Football:
             logging.debug('Table Downloaded')
 
             if response.status_code == requests.status_codes.codes.ok:
-                table = Table.model_validate_json(response.content)
+                try:
+                    table = Table.model_validate_json(response.content)
+                except ValidationError as e:
+                    logging.error(f'Failed to Parse Table: {response.content}')
+                    logging.error(e.json(indent=2))
+                    return
 
                 logging.debug(f'Season Start: {table.season.start_date}')
                 logging.debug(f'Season End  : {table.season.end_date}')
