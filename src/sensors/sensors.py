@@ -90,14 +90,14 @@ class Sensors:
                 logging.error(
                     f"Failed to get the status of the device: {sensor.device_name}, error: {e}"
                 )
-                return
+                continue
 
             # Check if the request was successful
             if response.status_code != requests.codes.ok:
                 logging.error(
                     f"Failed to get the status of the device: {sensor.device_name}"
                 )
-                return
+                continue
 
             try:
                 # Parse the response into a GoveeStatusResponse object
@@ -106,9 +106,10 @@ class Sensors:
                 )
             except ValidationError as e:
                 logging.error(
-                    f"Failed to parse the response into a GoveeStatusResponse object: {e}"
+                    f"Failed to parse the response into a GoveeStatusResponse object: {response.text}"
                 )
-                return
+                logging.error(e.json(indent=2))
+                continue
 
             # Insert the sensor data into the database
             self._insert_sensor_data(sensor.device_name, govee_status_response)
