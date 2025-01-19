@@ -286,12 +286,21 @@ class Football:
             and current_match.score.full_time.home is not None
             and current_match.score.full_time.away is not None
         ):
+            # Create the time string
+            time_string = ""
+
+            if current_match.minute is not None:
+                time_string += f" - {current_match.minute}"
+
+                if current_match.injury_time is not None:
+                    time_string += f" + {current_match.injury_time}"
+
             if previous_match.score.full_time.home < current_match.score.full_time.home:
                 logging.debug(
-                    f"{current_match.home_team.short_name} Goal: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}"
+                    f"{current_match.home_team.short_name} Goal: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}{time_string}"
                 )
                 notification = Notification(
-                    title=f"{current_match.home_team.short_name} Goal",
+                    title=f"{current_match.home_team.short_name} Goal{time_string}",
                     message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
                     crest_url=current_match.home_team.local_crest,
                 )
@@ -299,10 +308,10 @@ class Football:
                 previous_match.score.full_time.away < current_match.score.full_time.away
             ):
                 logging.debug(
-                    f"{current_match.away_team.short_name} Goal: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}"
+                    f"{current_match.away_team.short_name} Goal: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}{time_string}"
                 )
                 notification = Notification(
-                    title=f"{current_match.away_team.short_name} Goal",
+                    title=f"{current_match.away_team.short_name} Goal{time_string}",
                     message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
                     crest_url=current_match.away_team.local_crest,
                 )
@@ -310,10 +319,10 @@ class Football:
                 previous_match.score.full_time.home > current_match.score.full_time.home
             ):
                 logging.debug(
-                    f"{current_match.home_team.short_name} VAR Correction: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}"
+                    f"{current_match.home_team.short_name} VAR Correction: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}{time_string}"
                 )
                 notification = Notification(
-                    title=f"{current_match.home_team.short_name} VAR Correction",
+                    title=f"{current_match.home_team.short_name} VAR Correction{time_string}",
                     message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
                     crest_url=current_match.home_team.local_crest,
                 )
@@ -321,10 +330,10 @@ class Football:
                 previous_match.score.full_time.away > current_match.score.full_time.away
             ):
                 logging.debug(
-                    f"{current_match.away_team.short_name} VAR Correction: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}"
+                    f"{current_match.away_team.short_name} VAR Correction: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}{time_string}"
                 )
                 notification = Notification(
-                    title=f"{current_match.away_team.short_name} VAR Correction",
+                    title=f"{current_match.away_team.short_name} VAR Correction{time_string}",
                     message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
                     crest_url=current_match.away_team.local_crest,
                 )
