@@ -217,6 +217,8 @@ class Match(BaseModel):
     utc_date: datetime = Field(..., alias='utcDate')
     local_date: datetime | None = None
     status: MatchStatus
+    minute: int | None = None
+    injury_time: int | None = None
     matchday: int
     stage: str
     group: str | None = None
