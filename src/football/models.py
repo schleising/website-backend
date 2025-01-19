@@ -218,7 +218,7 @@ class Match(BaseModel):
     local_date: datetime | None = None
     status: MatchStatus
     minute: int | None = None
-    injury_time: int | None = None
+    injury_time: int | None = Field(default=None, alias='injuryTime')
     matchday: int
     stage: str
     group: str | None = None
