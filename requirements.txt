@@ -17,9 +17,9 @@ notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d38
 propcache==0.3.1
 py-vapid==1.9.2
 pycparser==2.22
-pydantic==2.11.3
-pydantic_core==2.33.1
-pymongo==4.12.0
+pydantic==2.11.4
+pydantic_core==2.33.2
+pymongo==4.12.1
 PyQRCode==1.2.1
 pywebpush==2.0.3
 requests==2.31.0
