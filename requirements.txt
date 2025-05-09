@@ -6,8 +6,8 @@ attrs==25.3.0
 bcrypt==4.3.0
 certifi==2025.4.26
 cffi==1.17.1
-charset-normalizer==3.4.1
-cryptography==44.0.2
+charset-normalizer==3.4.2
+cryptography==44.0.3
 dnspython==2.7.0
 frozenlist==1.6.0
 http_ece==1.2.1
