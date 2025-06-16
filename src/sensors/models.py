@@ -11,14 +11,9 @@ class InstanceType(str, Enum):
     HUMIDITY = "sensorHumidity"
 
 
-# The value of the humidity capability
-class HumidityValue(BaseModel):
-    current_humidity: float = Field(alias="currentHumidity")
-
-
 # The state of the capability, e.g. the temperature value
 class State(BaseModel):
-    value: float | bool | HumidityValue
+    value: float | bool
 
 
 # The container for the capability data

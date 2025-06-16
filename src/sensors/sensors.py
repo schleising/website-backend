@@ -17,7 +17,6 @@ from .models import (
     GoveeStatusRequestPayload,
     GoveeStatusRequest,
     GoveeStatusResponse,
-    HumidityValue,
     InstanceType,
     SensorData,
 )
@@ -106,9 +105,9 @@ class Sensors:
                 )
             except ValidationError as e:
                 logging.error(
-                    f"Failed to parse the response into a GoveeStatusResponse object: {response.text}"
+                    f"{sensor.device_name} Failed to parse the response into a GoveeStatusResponse object: {response.text}"
                 )
-                logging.error(e.json(indent=2))
+                logging.debug(e.json(indent=2))
                 continue
 
             # Insert the sensor data into the database
@@ -151,7 +150,7 @@ class Sensors:
 
                     # Log the temperature
                     logging.debug(f"{device_name} temperature: {celsius:.1f}°C")
-                case InstanceType.HUMIDITY, HumidityValue(current_humidity=humidity):
+                case InstanceType.HUMIDITY, float(humidity):
                     # Add the humidity to the sensor data
                     sensor_data.humidity = humidity
 
