@@ -244,7 +244,7 @@ class Football:
                         logging.error(f"Reason: {ex.response.reason}")
                         logging.error(f"Content: {ex.response.text.strip()}")
 
-                        if ex.response.status_code == requests.status_codes.codes.gone:
+                        if ex.response.status_code in [requests.status_codes.codes.not_found, requests.status_codes.codes.gone]:
                             logging.error(
                                 "Subscription is no longer valid, removing from database"
                             )
