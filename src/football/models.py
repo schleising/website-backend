@@ -15,6 +15,9 @@ class ShortName(str, Enum):
     crystal_palace = 'Crystal Palace'
     everton = 'Everton'
     fulham = 'Fulham'
+    ipswich = 'Ipswich Town'
+    leeds_utd = 'Leeds United'
+    leicester = 'Leicester City'
     liverpool = 'Liverpool'
     luton = 'Luton Town'
     man_city = 'Man City'
@@ -22,12 +25,11 @@ class ShortName(str, Enum):
     newcastle = 'Newcastle'
     nottingham = 'Nottingham'
     sheffield_utd = 'Sheffield Utd'
+    southampton = 'Southampton'
+    sunderland = 'Sunderland'    
     tottentham = 'Tottenham'
     west_ham = 'West Ham'
     wolves = 'Wolverhampton'
-    southampton = 'Southampton'
-    ipswich = 'Ipswich Town'
-    leicester = 'Leicester City'
 
     def __str__(self) -> str:
         match self.value:

@@ -7,8 +7,8 @@ mongo_db = BackendDatabase()
 
 mongo_db.set_database('web_database')
 
-pl_match_collection = mongo_db.get_collection('pl_matches_2024_2025')
-pl_table_collection = mongo_db.get_collection('pl_table_2024_2025')
+pl_match_collection = mongo_db.get_collection('pl_matches_2025_2026')
+pl_table_collection = mongo_db.get_collection('pl_table_2025_2026')
 live_pl_table_collection = mongo_db.get_collection('live_pl_table')
 football_push = mongo_db.get_collection('football_push_subscriptions')
 
