@@ -477,8 +477,8 @@ class Football:
         logging.debug("Getting Table")
 
         # Get the date, if it is before the season starts, use the start date, otherwise use today's date
-        if datetime.now(timezone.utc).date() < datetime(2025, 8, 16).date():
-            table_date = datetime(2025, 8, 16).date()
+        if datetime.now(timezone.utc).date() < datetime(2025, 8, 19).date():
+            table_date = datetime(2025, 8, 19).date()
         else:
             table_date = datetime.now(timezone.utc).date()
 
