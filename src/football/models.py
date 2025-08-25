@@ -342,6 +342,7 @@ class SimplifiedFootballData(BaseModel):
 class FootballBetData(BaseModel):
     team_name: str
     name: str
+    played: int
     points: int
     owea: str
     amounta: int
@@ -351,6 +352,7 @@ class FootballBetData(BaseModel):
     worst_case: int
     balance: str
     balance_amount: int
+    live: bool
 
 
 # Ordered list of bet data
