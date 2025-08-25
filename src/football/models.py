@@ -273,14 +273,14 @@ class Match(BaseModel):
             self.score.full_time.home is not None
             and self.score.full_time.away is not None
         ):
-            if self.home_team.name == team_name:
+            if self.home_team.short_name == team_name:
                 if self.score.full_time.home > self.score.full_time.away:
                     return 3
                 elif self.score.full_time.home == self.score.full_time.away:
                     return 1
                 else:
                     return 0
-            elif self.away_team.name == team_name:
+            elif self.away_team.short_name == team_name:
                 if self.score.full_time.away > self.score.full_time.home:
                     return 3
                 elif self.score.full_time.away == self.score.full_time.home:
