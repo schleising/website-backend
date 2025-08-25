@@ -396,7 +396,7 @@ class Football:
                 if pl_match_collection is not None:
                     previous_match = pl_match_collection.find_one({"id": match.id})
                     if previous_match is not None:
-                        previous_match = Match(**previous_match)
+                        previous_match = Match.model_validate(previous_match)
 
                     self.CompareMatchStates(previous_match, match)
 
@@ -539,7 +539,7 @@ class Football:
             # Get the table from the DB
             table_cursor = pl_table_collection.find({}).sort("position", ASCENDING)
 
-            table_list = [LiveTableItem(**table_item) for table_item in table_cursor]
+            table_list = [LiveTableItem.model_validate(table_item) for table_item in table_cursor]
 
             # Create a dict indexed by team name
             table_dict = {

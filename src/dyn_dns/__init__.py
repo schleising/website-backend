@@ -46,7 +46,7 @@ if DNS_INFO_COLLECTION is not None:
         # If the dns_info is not None, create a DynDnsDetails instance
         if dns_info is not None:
             # Create a DynDnsDetails instance
-            dyn_dns_details = DynDnsDetails(**dns_info)
+            dyn_dns_details = DynDnsDetails.model_validate(dns_info)
         else:
             # If the dns_info is None, log an error and exit
             logging.error("Failed to get the dyn dns details from the database.")
