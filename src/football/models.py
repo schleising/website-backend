@@ -107,6 +107,13 @@ class MatchStatus(str, Enum):
         else:
             return False
 
+    @property
+    def is_live(self) -> bool:
+        if self in [MatchStatus.in_play, MatchStatus.paused]:
+            return True
+        else:
+            return False
+
 
 class Filters(BaseModel):
     season: str
@@ -261,6 +268,30 @@ class Match(BaseModel):
 
     class Config:
         populate_by_name = True
+
+    def team_points(self, team_name: str) -> int | None:
+        if (
+            self.score.full_time.home is not None
+            and self.score.full_time.away is not None
+        ):
+            if self.home_team.name == team_name:
+                if self.score.full_time.home > self.score.full_time.away:
+                    return 3
+                elif self.score.full_time.home == self.score.full_time.away:
+                    return 1
+                else:
+                    return 0
+            elif self.away_team.name == team_name:
+                if self.score.full_time.away > self.score.full_time.home:
+                    return 3
+                elif self.score.full_time.away == self.score.full_time.home:
+                    return 1
+                else:
+                    return 0
+            else:
+                return None
+        else:
+            return None
 
 
 class Matches(BaseModel):
