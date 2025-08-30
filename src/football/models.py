@@ -352,6 +352,10 @@ class FootballBetData(BaseModel):
     balance: str
     balance_amount: int
     live: bool
+    home_team: str | None = None
+    away_team: str | None = None
+    home_team_score: int | None = None
+    away_team_score: int | None = None
 
 
 # Ordered list of bet data
