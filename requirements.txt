@@ -5,7 +5,7 @@ annotated-types==0.7.0
 attrs==25.3.0
 bcrypt==4.3.0
 certifi==2025.8.3
-cffi==1.17.1
+cffi==2.0.0
 charset-normalizer==3.4.3
 cryptography==45.0.7
 dnspython==2.8.0
@@ -16,10 +16,10 @@ multidict==6.6.4
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 propcache==0.3.2
 py-vapid==1.9.2
-pycparser==2.22
-pydantic==2.11.7
+pycparser==2.23
+pydantic==2.11.9
 pydantic_core==2.33.2
-pymongo==4.14.1
+pymongo==4.15.0
 PyQRCode==1.2.1
 pywebpush==2.0.3
 requests==2.31.0
