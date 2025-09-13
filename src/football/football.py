@@ -361,7 +361,15 @@ class Football:
                 timeout=5,
             )
         except requests.Timeout:
-            logging.error("Request Timed Out")
+            logging.error("Request Timed Out, will retry later")
+            return None
+
+        except requests.ConnectionError:
+            logging.error("Connection Error, will retry later")
+            return None 
+
+        except requests.RequestException as e:
+            logging.error(f"Request Failed: {e}, will retry later")
             return None
 
         if response.status_code == requests.status_codes.codes.ok:
@@ -489,7 +497,13 @@ class Football:
                 timeout=5,
             )
         except requests.Timeout:
-            logging.error("Table Download Timed Out")
+            logging.error("Table Download Timed Out, will retry later")
+        except requests.ConnectionError:
+            logging.error("Connection Error, will retry later")
+            return None 
+        except requests.RequestException as e:
+            logging.error(f"Request Failed: {e}, will retry later")
+            return None
         else:
             logging.debug("Table Downloaded")
 
