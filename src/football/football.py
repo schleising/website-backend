@@ -7,7 +7,7 @@ import json
 
 from pydantic import BaseModel, ValidationError
 
-import requests
+from requests import status_codes
 
 from pymongo import ASCENDING
 from pymongo.operations import UpdateOne
@@ -15,7 +15,7 @@ from pymongo.operations import UpdateOne
 from pywebpush import webpush, WebPushException
 
 from . import (
-    HEADERS,
+    requests_session,
     pl_match_collection,
     pl_table_collection,
     live_pl_table_collection,
@@ -25,6 +25,8 @@ from . import (
 from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
 
 from task_scheduler import TaskScheduler
+
+from utils.network_utils import get_request
 
 UPDATE_DELTA = timedelta(seconds=4)
 
@@ -244,7 +246,7 @@ class Football:
                         logging.error(f"Reason: {ex.response.reason}")
                         logging.error(f"Content: {ex.response.text.strip()}")
 
-                        if ex.response.status_code in [requests.status_codes.codes.not_found, requests.status_codes.codes.gone]:
+                        if ex.response.status_code in [status_codes.codes.not_found, status_codes.codes.gone]:
                             logging.error(
                                 "Subscription is no longer valid, removing from database"
                             )
@@ -354,25 +356,12 @@ class Football:
         from_date = from_date.astimezone(timezone.utc)
         to_date = to_date.astimezone(timezone.utc)
 
-        try:
-            response = requests.get(
-                f"https://api.football-data.org/v4/competitions/PL/matches?dateFrom={from_date.date()}&dateTo={to_date.date()}",
-                headers=HEADERS,
-                timeout=5,
-            )
-        except requests.Timeout:
-            logging.error("Request Timed Out, will retry later")
-            return None
+        response = get_request(
+            f"https://api.football-data.org/v4/competitions/PL/matches?dateFrom={from_date.date()}&dateTo={to_date.date()}",
+            requests_session
+        )
 
-        except requests.ConnectionError:
-            logging.error("Connection Error, will retry later")
-            return None 
-
-        except requests.RequestException as e:
-            logging.error(f"Request Failed: {e}, will retry later")
-            return None
-
-        if response.status_code == requests.status_codes.codes.ok:
+        if response is not None:
             logging.debug("Parsing Matches")
 
             try:
@@ -428,7 +417,6 @@ class Football:
 
                 logging.debug("Matches Added")
         else:
-            logging.error(f"Download Error: {response.status_code}")
             return None
 
         return match_list
@@ -490,61 +478,48 @@ class Football:
         else:
             table_date = datetime.now(timezone.utc).date()
 
-        try:
-            response = requests.get(
-                f"https://api.football-data.org/v4/competitions/PL/standings/?date={table_date}",
-                headers=HEADERS,
-                timeout=5,
-            )
-        except requests.Timeout:
-            logging.error("Table Download Timed Out, will retry later")
-        except requests.ConnectionError:
-            logging.error("Connection Error, will retry later")
-            return None 
-        except requests.RequestException as e:
-            logging.error(f"Request Failed: {e}, will retry later")
-            return None
-        else:
-            logging.debug("Table Downloaded")
+        response = get_request(
+            f"https://api.football-data.org/v4/competitions/PL/standings/?date={table_date}",
+            requests_session
+        )
 
-            if response.status_code == requests.status_codes.codes.ok:
-                try:
-                    table = Table.model_validate_json(response.content)
-                except ValidationError as e:
+        if response is not None:
+            logging.debug("Table Downloaded")
+            try:
+                table = Table.model_validate_json(response.content)
+            except ValidationError as e:
                     logging.error(f"Failed to Parse Table: {response.content}")
                     logging.error(e.json(indent=2))
                     return
 
-                logging.debug(f"Season Start: {table.season.start_date}")
-                logging.debug(f"Season End  : {table.season.end_date}")
+            logging.debug(f"Season Start: {table.season.start_date}")
+            logging.debug(f"Season End  : {table.season.end_date}")
 
-                # Update the database with the table
-                if pl_table_collection is not None:
-                    logging.debug("Writing Table")
-                    try:
-                        logging.debug("Creating Table Operations")
-                        operations = [
-                            UpdateOne(
-                                {"team.id": table_entry.team.id},
-                                {"$set": table_entry.model_dump()},
-                                upsert=True,
-                            )
-                            for table_entry in table.standings[0].table
-                        ]
-                        pl_table_collection.bulk_write(operations)
-                    except:
-                        logging.error("Failed to Write Table to DB")
-                    else:
-                        logging.debug("Table Written")
+            # Update the database with the table
+            if pl_table_collection is not None:
+                logging.debug("Writing Table")
+                try:
+                    logging.debug("Creating Table Operations")
+                    operations = [
+                        UpdateOne(
+                            {"team.id": table_entry.team.id},
+                            {"$set": table_entry.model_dump()},
+                            upsert=True,
+                        )
+                        for table_entry in table.standings[0].table
+                    ]
+                    pl_table_collection.bulk_write(operations)
+                except:
+                    logging.error("Failed to Write Table to DB")
                 else:
-                    logging.error("No Database Connection")
-
-                for table_entry in table.standings[0].table:
-                    logging.debug(
-                        f"{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}"
-                    )
+                    logging.debug("Table Written")
             else:
-                logging.error(f"Download Error: {response.status_code}")
+                logging.error("No Database Connection")
+
+            for table_entry in table.standings[0].table:
+                logging.debug(
+                    f"{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}"
+                )
 
     def update_live_table(self, matches: list[Match] | None) -> None:
         table_dict: dict[str, LiveTableItem] = {}

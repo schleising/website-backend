@@ -1,6 +1,9 @@
 import sys
 from pathlib import Path
 
+import requests
+from requests.adapters import HTTPAdapter
+
 from database import BackendDatabase
 
 mongo_db = BackendDatabase()
@@ -21,8 +24,15 @@ except:
     print('No football_api_token.txt file found')
     sys.exit()
 
-# Set the headers to include the api key
-HEADERS = { 'X-Auth-Token': api_key }
+# Create a requests session
+requests_session = requests.Session()
+
+# Add a retry strategy to the session
+adapter = HTTPAdapter(max_retries=3)
+requests_session.mount('https://', adapter)
+
+# Add headers to the session
+requests_session.headers.update({ 'X-Auth-Token': api_key })
 
 from .football import Football
 from .football_main import football_loop
