@@ -1,3 +1,4 @@
+import atexit
 import sys
 from pathlib import Path
 
@@ -33,6 +34,12 @@ requests_session.mount('https://', adapter)
 
 # Add headers to the session
 requests_session.headers.update({ 'X-Auth-Token': api_key })
+
+# Function to close the session on exit
+def close_requests_session() -> None:
+    requests_session.close()
+
+atexit.register(close_requests_session)
 
 from .football import Football
 from .football_main import football_loop
