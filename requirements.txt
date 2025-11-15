@@ -4,7 +4,7 @@ aiosignal==1.4.0
 annotated-types==0.7.0
 attrs==25.4.0
 bcrypt==5.0.0
-certifi==2025.10.5
+certifi==2025.11.12
 cffi==2.0.0
 charset-normalizer==3.4.4
 cryptography==46.0.3
@@ -19,9 +19,9 @@ py-vapid==1.9.2
 pycparser==2.23
 pydantic==2.12.4
 pydantic_core==2.41.5
-pymongo==4.15.3
+pymongo==4.15.4
 PyQRCode==1.2.1
-pywebpush==2.1.1
+pywebpush==2.1.2
 requests==2.31.0
 six==1.17.0
 typing-inspection==0.4.2
