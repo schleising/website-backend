@@ -19,7 +19,7 @@ py-vapid==1.9.2
 pycparser==2.23
 pydantic==2.12.5
 pydantic_core==2.41.5
-pymongo==4.15.4
+pymongo==4.15.5
 PyQRCode==1.2.1
 pywebpush==2.1.2
 requests==2.31.0
