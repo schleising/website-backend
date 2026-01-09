@@ -15,16 +15,16 @@ idna==3.11
 multidict==6.7.0
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 propcache==0.4.1
-py-vapid==1.9.2
+py-vapid==1.9.4
 pycparser==2.23
 pydantic==2.12.5
 pydantic_core==2.41.5
-pymongo==4.15.5
+pymongo==4.16.0
 PyQRCode==1.2.1
-pywebpush==2.1.2
+pywebpush==2.2.0
 requests==2.31.0
 six==1.17.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-urllib3==2.6.2
+urllib3==2.6.3
 yarl==1.22.0
