@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 import logging
 from threading import Event
 from zoneinfo import ZoneInfo
+from enum import Enum
+
 
 import requests
 
@@ -26,6 +28,12 @@ from . import (
     dyn_dns_details,
     DNS_INFO_COLLECTION,
 )
+
+
+class RecordType(Enum):
+    A = "A"
+    CNAME = "CNAME"
+    HTTPS = "HTTPS"
 
 
 class DynDns:
@@ -161,19 +169,50 @@ class DynDns:
 
         return external_ip_address
 
-    def update_cloudflare_dns(self, new_external_ip: str) -> bool:
+    def update_cloudflare_dns(
+        self, new_external_ip: str, record_type: RecordType, domain: str | None = None
+    ) -> bool:
         # Get the time in the Europe/London timezone
         london_tz = ZoneInfo("Europe/London")
         london_time = datetime.now(london_tz)
 
         # Create the payload to update the DNS record
-        payload = {
-            "content": new_external_ip,
-            "name": "schleising.net",
-            "proxied": True,
-            "type": "A",
-            "comment": f"Updated to {new_external_ip} on {london_time.strftime('%Y-%m-%d %H:%M:%S')}",
-        }
+        match record_type:
+            # A Record type
+            case RecordType.A:
+                payload = {
+                    "name": "schleising.net",
+                    "ttl": 1,
+                    "type": record_type.value,
+                    "comment": f"Updated to {new_external_ip} on {london_time.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "content": new_external_ip,
+                    "proxied": False,
+                }
+            # HTTPS Record type
+            case RecordType.HTTPS:
+                payload = {
+                    "name": "schleising.net",
+                    "ttl": 1,
+                    "type": record_type.value,
+                    "comment": f"Updated ipv4hint to {new_external_ip} on {london_time.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "data": {
+                        "value": f'alpn="h3,h2" ipv4hint="{new_external_ip}"',
+                    },
+                    "proxied": False,
+                }
+            # CNAME Record type
+            case RecordType.CNAME:
+                if domain is None:
+                    logging.error("Domain must be provided for CNAME record type.")
+                    return False
+                payload = {
+                    "name": "schleising.net",
+                    "ttl": 1,
+                    "type": record_type.value,
+                    "comment": f"Updated to {new_external_ip} on {london_time.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "content": domain,
+                    "proxied": False,
+                }
 
         # Log the new external IP
         logging.info(f"Updating DNS record to {new_external_ip}.")
@@ -215,7 +254,8 @@ class DynDns:
                 f"External IP address has changed from {dyn_dns_details.current_external_ip} to {new_external_ip}."
             )
 
-            if self.update_cloudflare_dns(new_external_ip):
+            # Try to update the cloudflare DNS A record
+            if self.update_cloudflare_dns(new_external_ip, RecordType.A):
                 # If the notify run endpoint is set, send a notification
                 if self.notify:
                     self.notify.send(
@@ -230,6 +270,12 @@ class DynDns:
                     DNS_INFO_COLLECTION.update_one(
                         {}, {"$set": {"current_external_ip": new_external_ip}}
                     )
+
+                # If the A record was updated successfully, try to update the HTTPS record
+                if self.update_cloudflare_dns(new_external_ip, RecordType.HTTPS):
+                    logging.info("HTTPS record updated successfully.")
+                else:
+                    logging.error("Failed to update the HTTPS record.")
             else:
                 # Send a notification if the notify run endpoint is set
                 if self.notify:
