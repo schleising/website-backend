@@ -16,7 +16,7 @@ multidict==6.7.0
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 propcache==0.4.1
 py-vapid==1.9.4
-pycparser==2.23
+pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 pymongo==4.16.0
