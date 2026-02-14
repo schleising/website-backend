@@ -7,7 +7,7 @@ bcrypt==5.0.0
 certifi==2026.1.4
 cffi==2.0.0
 charset-normalizer==3.4.4
-cryptography==46.0.4
+cryptography==46.0.5
 dnspython==2.8.0
 frozenlist==1.8.0
 http_ece==1.2.1
@@ -21,7 +21,7 @@ pydantic==2.12.5
 pydantic_core==2.41.5
 pymongo==4.16.0
 PyQRCode==1.2.1
-pywebpush==2.2.0
+pywebpush==2.3.0
 requests==2.31.0
 six==1.17.0
 typing-inspection==0.4.2
