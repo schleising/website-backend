@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -145,9 +146,20 @@ class Team(BaseModel):
 
     @property
     def local_crest(self) -> str:
-        return (
-            f'/images/football/crests/{self.crest.split('/')[-1].replace("svg", "png")}'
-        )
+        fallback_path = "/images/football/crests/unknown_team.svg"
+        crest_value = (self.crest or "").strip()
+        if crest_value == "":
+            return fallback_path
+
+        filename = crest_value.split("/")[-1].strip()
+        if filename == "":
+            return fallback_path
+
+        suffix = Path(filename).suffix.lower()
+        if suffix == ".svg":
+            return f"/images/football/crests/{Path(filename).stem}.png"
+
+        return f"/images/football/crests/{filename}"
 
 
 class Season(BaseModel):
