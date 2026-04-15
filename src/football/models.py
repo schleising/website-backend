@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ShortName(str, Enum):
@@ -317,6 +317,48 @@ class Matches(BaseModel):
 
 class MatchList(BaseModel):
     matches: list[Match]
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    expiration_time: int | None = Field(default=None, alias="expirationTime")
+    keys: PushSubscriptionKeys
+
+    class Config:
+        populate_by_name = True
+
+
+class PushSubscriptionDocument(BaseModel):
+    subscription: PushSubscription
+    team_ids: list[int] = Field(default_factory=list)
+    username: str = "Anonymous User"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalise_legacy_shape(cls, data):
+        if not isinstance(data, dict):
+            return data
+
+        if "subscription" in data:
+            return data
+
+        if "endpoint" in data and "keys" in data:
+            return {
+                "subscription": {
+                    "endpoint": data.get("endpoint"),
+                    "expirationTime": data.get("expirationTime"),
+                    "keys": data.get("keys", {}),
+                },
+                "team_ids": data.get("team_ids", []),
+                "username": data.get("username", "Anonymous User"),
+            }
+
+        return data
 
 
 # Simplified match type for gpt4

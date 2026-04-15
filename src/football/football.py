@@ -22,13 +22,22 @@ from . import (
     football_push,
 )
 
-from .models import Table, LiveTableItem, FormItem, Matches, Match, MatchStatus
+from .models import (
+    Table,
+    LiveTableItem,
+    FormItem,
+    Matches,
+    Match,
+    MatchStatus,
+    PushSubscriptionDocument,
+)
 
 from task_scheduler import TaskScheduler
 
 from utils.network_utils import get_request
 
 UPDATE_DELTA = timedelta(seconds=4)
+PUSH_INDEXES_READY = False
 
 
 class Notification(BaseModel):
@@ -195,13 +204,38 @@ class Football:
 
         self.schedule_live_updates(matches)
 
+    def _ensure_push_subscription_indexes(self) -> None:
+        global PUSH_INDEXES_READY
+
+        if PUSH_INDEXES_READY:
+            return
+
+        if football_push is None:
+            return
+
+        football_push.create_index("subscription.endpoint", unique=True)
+        football_push.create_index("team_ids")
+        PUSH_INDEXES_READY = True
+
     # Send a push notification for the change in match status
     def send_notification(
-        self, title: str, message: str, icon: str | None = None
+        self,
+        title: str,
+        message: str,
+        team_ids: list[int],
+        icon: str | None = None,
     ) -> None:
+        if len(team_ids) == 0:
+            logging.debug("Skipping notification because no team IDs were provided")
+            return
+
         # Get the subscriptions from the database
         if football_push is not None:
-            subscriptions = football_push.find()
+            self._ensure_push_subscription_indexes()
+
+            subscriptions = football_push.find(
+                {"team_ids": {"$in": sorted(set(team_ids))}}
+            )
 
             # Load the claims
             with open("src/secrets/claims.json", "r") as file:
@@ -214,13 +248,31 @@ class Football:
             # Log the notification
             logging.info(f"Sending Notification: {title} - {message}")
 
+            sent_endpoints: set[str] = set()
+
             # Send the push notifications
-            for subscription in subscriptions:
-                logging.debug(f"Sending notification to {subscription}")
+            for subscription_data in subscriptions:
+                try:
+                    subscription_doc = PushSubscriptionDocument.model_validate(
+                        subscription_data
+                    )
+                except ValidationError as ex:
+                    logging.error(f"Invalid subscription document: {ex}")
+                    continue
+
+                endpoint = subscription_doc.subscription.endpoint
+                if endpoint in sent_endpoints:
+                    continue
+
+                sent_endpoints.add(endpoint)
+                logging.debug(f"Sending notification to endpoint {endpoint}")
 
                 try:
                     webpush(
-                        subscription_info=subscription,
+                        subscription_info=subscription_doc.subscription.model_dump(
+                            by_alias=True,
+                            exclude_none=True,
+                        ),
                         data=json.dumps(
                             {
                                 "title": title,
@@ -251,7 +303,18 @@ class Football:
                                 "Subscription is no longer valid, removing from database"
                             )
                             # Remove the subscription from the database
-                            football_push.delete_one({"_id": subscription["_id"]})
+                            football_push.delete_one(
+                                {
+                                    "$or": [
+                                        {
+                                            "subscription.endpoint": endpoint,
+                                        },
+                                        {
+                                            "endpoint": endpoint,
+                                        },
+                                    ]
+                                }
+                            )
                 else:
                     logging.debug("Notification sent successfully")
 
@@ -342,7 +405,10 @@ class Football:
 
         if notification is not None:
             self.send_notification(
-                notification.title, notification.message, notification.crest_url
+                notification.title,
+                notification.message,
+                [current_match.home_team.id, current_match.away_team.id],
+                notification.crest_url,
             )
 
     def get_matches_between_dates(
