@@ -6,34 +6,74 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ShortName(str, Enum):
+    accrington_fc = "Accrington F.C."
     arsenal = "Arsenal"
     aston_villa = "Aston Villa"
+    barnsley = "Barnsley"
+    birmingham_city = "Birmingham City"
+    blackburn_rovers = "Blackburn Rovers"
+    blackpool = "Blackpool"
+    bolton_wanderers = "Bolton Wanderers"
     bournemouth = "Bournemouth"
+    bradford = "Bradford"
+    bradford_park_avenue = "Bradford Park Avenue"
     brentford = "Brentford"
     brighton = "Brighton Hove"
+    bristol_city = "Bristol City"
     burnley = "Burnley"
+    bury = "Bury"
+    cardiff_city = "Cardiff City"
+    carlisle_united = "Carlisle United"
+    charlton_athletic = "Charlton Athletic"
     chelsea = "Chelsea"
+    coventry = "Coventry"
     crystal_palace = "Crystal Palace"
+    darwen = "Darwen"
+    derby = "Derby"
     everton = "Everton"
     fulham = "Fulham"
+    glossop_north_end = "Glossop North End"
+    grimsby_town = "Grimsby Town"
+    huddersfield_town = "Huddersfield Town"
+    hull_city = "Hull City"
     ipswich = "Ipswich Town"
     leeds_utd = "Leeds United"
     leicester = "Leicester City"
+    leyton_orient = "Leyton Orient"
     liverpool = "Liverpool"
     luton = "Luton Town"
     man_city = "Man City"
     man_utd = "Man United"
+    middlesbrough = "Middlesbrough"
+    millwall = "Millwall"
     newcastle = "Newcastle"
+    northampton_town = "Northampton Town"
+    norwich_city = "Norwich City"
     nottingham = "Nottingham"
+    notts_county = "Notts County"
+    oldham_athletic = "Oldham Athletic"
+    oxford_united = "Oxford United"
+    portsmouth = "Portsmouth"
+    preston_north_end = "Preston North End"
+    queens_park_rangers = "Queens Park Rangers"
+    reading = "Reading"
     sheffield_utd = "Sheffield Utd"
+    sheffield_wed = "Sheffield Wed"
     southampton = "Southampton"
+    stoke_city = "Stoke City"
     sunderland = "Sunderland"
+    swansea_city = "Swansea City"
+    swindon_town = "Swindon Town"
     tottentham = "Tottenham"
+    watford = "Watford"
+    west_bromwich_albion = "West Bromwich Albion"
     west_ham = "West Ham"
+    wigan_athletic = "Wigan Athletic"
+    wimbledon = "Wimbledon"
     wolves = "Wolverhampton"
 
     def __str__(self) -> str:
-        match self.value:
+        match self:
             case self.brighton:
                 return "Brighton"
             case self.wolves:
@@ -41,7 +81,7 @@ class ShortName(str, Enum):
             case self.nottingham:
                 return "Notts Forest"
             case _:
-                return str(self.value)
+                return self.value
 
 
 class MatchStatus(str, Enum):
