@@ -7,16 +7,19 @@ RUN apk update && \
 
 # Add the required packages, disabling cache to reduce the size of the image
 COPY ./requirements.txt /requirements.txt
-RUN pip install --user --no-cache-dir -r /requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r /requirements.txt
 
 # Start witha fresh image after installing the necessary Python packages
 FROM python:3-alpine
 
 # Copy the python packages only from the build stage
-COPY --from=build /root/.local /root/.local
+COPY --from=build /install /usr/local
 
-# Make sure scripts in .local are in the PATH
-ENV PATH=/root/.local/bin:$PATH
+# Create an unprivileged runtime user
+RUN addgroup -S app && adduser -S -G app app
+
+# Run as non-root
+USER app
 
 # Set the entrypoint to run uvicorn with a socket connection
 CMD [ "python", "src/main.py" ]
