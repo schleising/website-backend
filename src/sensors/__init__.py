@@ -30,10 +30,6 @@ DATABASE.set_database("web_database")
 # Set the collection in use
 SENSORS_COLLECTION = DATABASE.get_collection("sensors_collection")
 
-# Create an index on the sensors collection with the device field as the unique key
-if SENSORS_COLLECTION is not None:
-    SENSORS_COLLECTION.create_index("device", unique=True)
-
 # Get a collection of sensor readings
 SENSOR_DATA_COLLECTION = DATABASE.get_collection("sensor_data")
 

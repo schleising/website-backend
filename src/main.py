@@ -8,6 +8,7 @@ import logging
 from football import football_loop
 from dyn_dns import dyn_dns_loop
 from sensors import sensors_loop
+from database.index_bootstrap import ensure_backend_indexes
 
 
 def terminate(signal: int, _: FrameType | None) -> None:
@@ -54,6 +55,9 @@ if __name__ == "__main__":
 
     # Log that the backend is intialised
     logging.info("Backend Initialising")
+
+    # Ensure required indexes exist before worker loops start.
+    ensure_backend_indexes()
 
     # Submit the futures
     with ThreadPoolExecutor() as executor:

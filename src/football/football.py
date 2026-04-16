@@ -37,7 +37,6 @@ from task_scheduler import TaskScheduler
 from utils.network_utils import get_request
 
 UPDATE_DELTA = timedelta(seconds=4)
-PUSH_INDEXES_READY = False
 
 
 class Notification(BaseModel):
@@ -204,19 +203,6 @@ class Football:
 
         self.schedule_live_updates(matches)
 
-    def _ensure_push_subscription_indexes(self) -> None:
-        global PUSH_INDEXES_READY
-
-        if PUSH_INDEXES_READY:
-            return
-
-        if football_push is None:
-            return
-
-        football_push.create_index("subscription.endpoint", unique=True)
-        football_push.create_index("team_ids")
-        PUSH_INDEXES_READY = True
-
     # Send a push notification for the change in match status
     def send_notification(
         self,
@@ -231,8 +217,6 @@ class Football:
 
         # Get the subscriptions from the database
         if football_push is not None:
-            self._ensure_push_subscription_indexes()
-
             subscriptions = football_push.find(
                 {"team_ids": {"$in": sorted(set(team_ids))}}
             )
