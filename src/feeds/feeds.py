@@ -31,7 +31,7 @@ from . import (
 from .models import FeedArticleDocument
 
 FETCH_INTERVAL = timedelta(
-    seconds=max(5, int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "300")))
+    seconds=max(5, int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "900")))
 )
 CYCLE_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_CYCLE_INTERVAL_SECONDS", "15")))
