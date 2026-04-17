@@ -18,6 +18,7 @@ class FeedSourceDocument(MongoDocumentModel):
     id: ObjectId | None = Field(default=None, alias="_id")
     normalized_url: str
     title: str = ""
+    image_url: str | None = None
     etag: str | None = None
     last_modified: str | None = None
     last_fetched_at: datetime | None = None

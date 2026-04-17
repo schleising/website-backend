@@ -9,6 +9,7 @@ import logging
 import os
 from time import mktime
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from bson import ObjectId
 from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
@@ -226,11 +227,18 @@ class Feeds:
         if feed_title == "":
             feed_title = str(source_doc.get("title", source_url)).strip() or source_url
 
+        feed_image_url = extract_feed_image_url(parsed.feed, source_url)
+        if feed_image_url is None:
+            existing_image_url = str(source_doc.get("image_url", "")).strip()
+            if existing_image_url != "":
+                feed_image_url = existing_image_url
+
         FEED_SOURCES_COLLECTION.update_one(
             {"_id": source_id},
             {
                 "$set": {
                     "title": feed_title,
+                    "image_url": feed_image_url,
                     "etag": response.headers.get("ETag"),
                     "last_modified": response.headers.get("Last-Modified"),
                     "fetch_status": "ok",
@@ -458,6 +466,58 @@ def parse_entry_published_at(entry: dict[str, Any]) -> datetime | None:
             continue
 
         return coerce_utc_datetime(parsed_datetime)
+
+    return None
+
+
+def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:
+    """Normalize feed-level image/icon URLs to absolute HTTP(S) URLs."""
+
+    if not isinstance(candidate, str):
+        return None
+
+    trimmed = candidate.strip()
+    if trimmed == "":
+        return None
+
+    normalized = urljoin(source_url, trimmed)
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or parsed.netloc == "":
+        return None
+
+    return normalized
+
+
+def extract_feed_image_url(feed_data: Any, source_url: str) -> str | None:
+    """Extract a representative feed image/icon URL from parsed feed metadata."""
+
+    if not hasattr(feed_data, "get"):
+        return None
+
+    image_block = feed_data.get("image")
+    candidates: list[Any] = []
+    if isinstance(image_block, dict):
+        candidates.extend(
+            [
+                image_block.get("href"),
+                image_block.get("url"),
+                image_block.get("src"),
+            ]
+        )
+
+    candidates.extend(
+        [
+            feed_data.get("icon"),
+            feed_data.get("logo"),
+            feed_data.get("image_href"),
+            feed_data.get("image_url"),
+        ]
+    )
+
+    for candidate in candidates:
+        normalized = normalize_feed_asset_url(candidate, source_url)
+        if normalized is not None:
+            return normalized
 
     return None
 
