@@ -15,6 +15,7 @@ from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeout
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from feed_entry_media import extract_largest_media_image_url
 
 from feed_refresh_policy import source_needs_fetch
 from task_scheduler import TaskScheduler
@@ -53,6 +54,7 @@ class ParsedEntry:
     author: str | None
     summary_html: str | None
     published_at: datetime | None
+    media_image_url: str | None
 
 
 class Feeds:
@@ -292,6 +294,7 @@ class Feeds:
 
         published_at = parse_entry_published_at(entry)
         author = str(entry.get("author", "")).strip() or None
+        media_image_url = extract_largest_media_image_url(entry, source_url)
 
         dedupe_material = "|".join(
             [
@@ -312,6 +315,7 @@ class Feeds:
             author=author,
             summary_html=summary_html,
             published_at=published_at,
+            media_image_url=media_image_url,
         )
 
     def _upsert_article(self, feed_id: ObjectId, parsed_entry: ParsedEntry) -> None:
@@ -330,6 +334,7 @@ class Feeds:
             author=parsed_entry.author,
             summary_html=parsed_entry.summary_html,
             published_at=parsed_entry.published_at,
+            media_image_url=parsed_entry.media_image_url,
             fetched_at=now,
             is_deleted=False,
             deleted_at=None,
