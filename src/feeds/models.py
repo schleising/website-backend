@@ -24,6 +24,7 @@ class FeedSourceDocument(MongoDocumentModel):
     fetch_status: str = "new"
     last_error: str | None = None
     next_retry_at: datetime | None = None
+    force_refresh_requested_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

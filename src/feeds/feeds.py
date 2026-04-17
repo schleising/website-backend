@@ -16,6 +16,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from feed_refresh_policy import source_needs_fetch
 from task_scheduler import TaskScheduler
 
 from . import (
@@ -28,6 +29,9 @@ from .models import FeedArticleDocument
 
 FETCH_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "300")))
+)
+CYCLE_INTERVAL = timedelta(
+    seconds=max(5, int(os.getenv("FEEDS_CYCLE_INTERVAL_SECONDS", "15")))
 )
 RETRY_AFTER_FAILURE = timedelta(
     seconds=max(30, int(os.getenv("FEEDS_RETRY_AFTER_FAILURE_SECONDS", "900")))
@@ -61,7 +65,7 @@ class Feeds:
         self.scheduler.schedule_task(
             datetime.now(timezone.utc),
             self.run_cycle,
-            FETCH_INTERVAL,
+            CYCLE_INTERVAL,
         )
 
     def _build_session(self) -> requests.Session:
@@ -127,10 +131,8 @@ class Feeds:
 
         sources: list[dict[str, Any]] = []
         for source in cursor:
-            next_retry_at = coerce_utc_datetime(source.get("next_retry_at"))
-            if next_retry_at is not None and next_retry_at > now:
-                continue
-            sources.append(source)
+            if source_needs_fetch(source, now, FETCH_INTERVAL):
+                sources.append(source)
 
         return sources
 
@@ -183,6 +185,7 @@ class Feeds:
                         "fetch_status": "not_modified",
                         "last_error": None,
                         "next_retry_at": None,
+                        "force_refresh_requested_at": None,
                         "last_fetched_at": now,
                         "updated_at": now,
                     }
@@ -231,6 +234,7 @@ class Feeds:
                     "fetch_status": "ok",
                     "last_error": None,
                     "next_retry_at": None,
+                    "force_refresh_requested_at": None,
                     "last_fetched_at": now,
                     "updated_at": now,
                 }
@@ -257,6 +261,7 @@ class Feeds:
                     "fetch_status": "error",
                     "last_error": reason,
                     "next_retry_at": now + RETRY_AFTER_FAILURE,
+                    "force_refresh_requested_at": None,
                     "last_fetched_at": now,
                     "updated_at": now,
                 }

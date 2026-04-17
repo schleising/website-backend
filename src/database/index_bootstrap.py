@@ -141,6 +141,7 @@ def ensure_backend_indexes() -> None:
     if feed_sources is not None:
         _ensure_index(feed_sources, [("normalized_url", ASCENDING)], unique=True)
         _ensure_index(feed_sources, [("next_retry_at", ASCENDING)])
+        _ensure_index(feed_sources, [("force_refresh_requested_at", ASCENDING)])
 
     feed_articles = database.get_collection("feed_articles")
     if feed_articles is not None:
