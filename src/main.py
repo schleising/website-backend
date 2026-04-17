@@ -8,6 +8,7 @@ import logging
 from football import football_loop
 from dyn_dns import dyn_dns_loop
 from sensors import sensors_loop
+from feeds import feeds_loop
 from database.index_bootstrap import ensure_backend_indexes
 
 
@@ -64,6 +65,7 @@ if __name__ == "__main__":
         futures.append(executor.submit(football_loop, terminate_event, log_level))
         futures.append(executor.submit(dyn_dns_loop, terminate_event, log_level))
         futures.append(executor.submit(sensors_loop, terminate_event, log_level))
+        futures.append(executor.submit(feeds_loop, terminate_event, log_level))
 
         # If any of the threads raises an exception then exit to output it
         wait(futures, return_when=FIRST_EXCEPTION)

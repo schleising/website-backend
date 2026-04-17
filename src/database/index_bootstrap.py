@@ -134,6 +134,64 @@ def ensure_backend_indexes() -> None:
         _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", DESCENDING)])
         _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", ASCENDING)])
 
+    # feeds_database indexes
+    database.set_database("feeds_database")
+
+    feed_sources = database.get_collection("feed_sources")
+    if feed_sources is not None:
+        _ensure_index(feed_sources, [("normalized_url", ASCENDING)], unique=True)
+        _ensure_index(feed_sources, [("next_retry_at", ASCENDING)])
+
+    feed_articles = database.get_collection("feed_articles")
+    if feed_articles is not None:
+        _ensure_index(
+            feed_articles,
+            [("feed_id", ASCENDING), ("dedupe_key", ASCENDING)],
+            unique=True,
+        )
+        _ensure_index(feed_articles, [("feed_id", ASCENDING), ("published_at", ASCENDING)])
+        _ensure_index(feed_articles, [("is_deleted", ASCENDING), ("deleted_at", ASCENDING)])
+        _ensure_index(feed_articles, [("_id", ASCENDING), ("feed_id", ASCENDING)])
+
+    user_feed_subscriptions = database.get_collection("user_feed_subscriptions")
+    if user_feed_subscriptions is not None:
+        _ensure_index(
+            user_feed_subscriptions,
+            [("user_id", ASCENDING), ("feed_id", ASCENDING)],
+            unique=True,
+        )
+        _ensure_index(
+            user_feed_subscriptions,
+            [("user_id", ASCENDING), ("category_id", ASCENDING)],
+        )
+        _ensure_index(user_feed_subscriptions, [("feed_id", ASCENDING)])
+
+    feed_categories = database.get_collection("feed_categories")
+    if feed_categories is not None:
+        _ensure_index(
+            feed_categories,
+            [("user_id", ASCENDING), ("name", ASCENDING)],
+            unique=True,
+        )
+        _ensure_index(
+            feed_categories,
+            [("user_id", ASCENDING), ("muted", ASCENDING), ("sort_order", ASCENDING)],
+        )
+        _ensure_index(feed_categories, [("user_id", ASCENDING), ("color_hex", ASCENDING)])
+
+    user_article_states = database.get_collection("user_article_states")
+    if user_article_states is not None:
+        _ensure_index(
+            user_article_states,
+            [("user_id", ASCENDING), ("article_id", ASCENDING)],
+            unique=True,
+        )
+        _ensure_index(
+            user_article_states,
+            [("user_id", ASCENDING), ("is_read", ASCENDING), ("read_at", DESCENDING)],
+        )
+        _ensure_index(user_article_states, [("article_id", ASCENDING), ("is_read", ASCENDING)])
+
     # media indexes
     database.set_database("media")
 

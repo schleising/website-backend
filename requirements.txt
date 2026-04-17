@@ -9,6 +9,7 @@ cffi==2.0.0
 charset-normalizer==3.4.7
 cryptography==46.0.7
 dnspython==2.8.0
+feedparser==6.0.12
 frozenlist==1.8.0
 http_ece==1.2.1
 idna==3.11
