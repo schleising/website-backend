@@ -17,6 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from feed_entry_media import extract_largest_media_image_url
+from feed_summary_images import strip_duplicate_summary_image
 
 from feed_refresh_policy import source_needs_fetch
 from task_scheduler import TaskScheduler
@@ -297,12 +298,14 @@ class Feeds:
         if summary_html is None:
             summary_html = str(entry.get("summary", "")).strip() or None
 
+        media_image_url = extract_largest_media_image_url(entry, source_url)
+        summary_html = strip_duplicate_summary_image(summary_html, media_image_url, source_url)
+
         if summary_html is not None and len(summary_html) > MAX_SUMMARY_LENGTH:
             summary_html = summary_html[:MAX_SUMMARY_LENGTH]
 
         published_at = parse_entry_published_at(entry)
         author = str(entry.get("author", "")).strip() or None
-        media_image_url = extract_largest_media_image_url(entry, source_url)
 
         dedupe_material = "|".join(
             [
