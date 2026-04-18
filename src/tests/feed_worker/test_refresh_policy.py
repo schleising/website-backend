@@ -24,6 +24,22 @@ class SourceRefreshPolicyTests(unittest.TestCase):
             timedelta(minutes=30),
         )
 
+    def test_source_caps_persisted_refresh_interval_to_thirty_minutes(self) -> None:
+        source_doc = {
+            "refresh_interval_seconds": 7200,
+        }
+
+        self.assertEqual(
+            resolve_source_refresh_interval(source_doc, self.fetch_interval),
+            timedelta(minutes=30),
+        )
+
+    def test_source_caps_default_refresh_interval_to_thirty_minutes(self) -> None:
+        self.assertEqual(
+            resolve_source_refresh_interval({}, timedelta(hours=2)),
+            timedelta(minutes=30),
+        )
+
     def test_source_does_not_fetch_before_interval_without_force(self) -> None:
         source_doc = {
             "last_fetched_at": self.now - self.fetch_interval + timedelta(seconds=45),

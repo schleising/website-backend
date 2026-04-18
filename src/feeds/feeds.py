@@ -19,7 +19,11 @@ from urllib3.util.retry import Retry
 from feed_entry_media import extract_largest_media_image_url
 from feed_summary_images import strip_duplicate_summary_image
 
-from feed_refresh_policy import resolve_source_refresh_interval, source_needs_fetch
+from feed_refresh_policy import (
+    MAX_REFRESH_INTERVAL,
+    resolve_source_refresh_interval,
+    source_needs_fetch,
+)
 from task_scheduler import TaskScheduler
 
 from . import (
@@ -106,7 +110,10 @@ class Feeds:
     ) -> datetime:
         """Compute next refresh time using bounded deterministic stagger."""
 
-        normalized_interval = max(timedelta(seconds=5), refresh_interval)
+        normalized_interval = min(
+            MAX_REFRESH_INTERVAL,
+            max(timedelta(seconds=5), refresh_interval),
+        )
         stagger_budget = min(MAX_SCHEDULE_LAG, normalized_interval)
 
         if stagger_budget <= timedelta(0):
@@ -613,7 +620,10 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
 
     ttl_minutes = coerce_positive_int(feed_data.get("ttl"))
     if ttl_minutes is not None:
-        return timedelta(seconds=max(5, ttl_minutes * 60))
+        return min(
+            MAX_REFRESH_INTERVAL,
+            timedelta(seconds=max(5, ttl_minutes * 60)),
+        )
 
     # Support RSS Syndication module metadata when TTL is absent.
     update_period = str(
@@ -639,7 +649,10 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
         return None
 
     cadence_seconds = max(5, int(period_seconds / update_frequency))
-    return timedelta(seconds=cadence_seconds)
+    return min(
+        MAX_REFRESH_INTERVAL,
+        timedelta(seconds=cadence_seconds),
+    )
 
 
 def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:

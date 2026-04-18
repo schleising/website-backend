@@ -4,6 +4,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
+MAX_REFRESH_INTERVAL = timedelta(minutes=30)
+
+
 def _coerce_utc_datetime(value: Any) -> datetime | None:
     """Normalize a datetime value to timezone-aware UTC."""
 
@@ -50,10 +53,11 @@ def resolve_source_refresh_interval(
 ) -> timedelta:
     """Resolve the effective source refresh interval from persisted metadata."""
 
-    default_seconds = max(5, int(default_fetch_interval.total_seconds()))
+    max_seconds = int(MAX_REFRESH_INTERVAL.total_seconds())
+    default_seconds = max(5, min(max_seconds, int(default_fetch_interval.total_seconds())))
     persisted_seconds = _coerce_positive_int(source_doc.get("refresh_interval_seconds"))
     effective_seconds = persisted_seconds if persisted_seconds is not None else default_seconds
-    return timedelta(seconds=max(5, effective_seconds))
+    return timedelta(seconds=max(5, min(max_seconds, effective_seconds)))
 
 
 def source_needs_fetch(
