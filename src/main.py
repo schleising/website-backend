@@ -8,7 +8,7 @@ import logging
 from football import football_loop
 from dyn_dns import dyn_dns_loop
 from sensors import sensors_loop
-from feeds import feeds_loop
+from feeds.feeds_main import feeds_loop
 from database.index_bootstrap import ensure_backend_indexes
 
 

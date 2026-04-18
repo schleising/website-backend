@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from feed_refresh_policy import resolve_source_refresh_interval, source_needs_fetch
+from feeds.feed_refresh_policy import resolve_source_refresh_interval, source_needs_fetch
 
 
 class SourceRefreshPolicyTests(unittest.TestCase):

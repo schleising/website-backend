@@ -11,10 +11,7 @@ USER_FEED_SUBSCRIPTIONS_COLLECTION = DATABASE.get_collection("user_feed_subscrip
 FEED_CATEGORIES_COLLECTION = DATABASE.get_collection("feed_categories")
 USER_ARTICLE_STATES_COLLECTION = DATABASE.get_collection("user_article_states")
 
-from .feeds_main import feeds_loop
-
 __all__ = [
-    "feeds_loop",
     "FEED_SOURCES_COLLECTION",
     "FEED_ARTICLES_COLLECTION",
     "USER_FEED_SUBSCRIPTIONS_COLLECTION",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from feed_summary_images import strip_duplicate_summary_image
+from feeds.feed_summary_images import strip_duplicate_summary_image
 
 
 SOURCE_URL = "https://example.com/feed.xml"

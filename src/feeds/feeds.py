@@ -4,27 +4,27 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import hashlib
-import importlib
 import logging
 import os
 from time import mktime
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import feedparser
 from bson import ObjectId
 from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from feed_entry_media import extract_largest_media_image_url
-from feed_summary_images import strip_duplicate_summary_image
+from task_scheduler import TaskScheduler
 
-from feed_refresh_policy import (
+from .feed_entry_media import extract_largest_media_image_url
+from .feed_refresh_policy import (
     MAX_REFRESH_INTERVAL,
     resolve_source_refresh_interval,
     source_needs_fetch,
 )
-from task_scheduler import TaskScheduler
+from .feed_summary_images import strip_duplicate_summary_image
 
 from . import (
     FEED_ARTICLES_COLLECTION,
@@ -264,21 +264,15 @@ class Feeds:
             )
             return
 
-        feedparser_module = import_feedparser_module()
-        if feedparser_module is None:
-            self._record_fetch_failure(
-                source_doc,
-                source_id,
-                "feedparser dependency is not installed.",
-            )
-            return
-
         payload = response.content
         if FAILURE_MODE == "malformed":
             payload = b"<rss><channel><title>Malformed"
 
-        parsed = feedparser_module.parse(payload)
+        parsed = feedparser.parse(payload)
         entries = list(parsed.entries or [])
+        parsed_feed: Any = parsed.feed if hasattr(parsed, "feed") else {}
+        if not hasattr(parsed_feed, "get"):
+            parsed_feed = {}
 
         if len(entries) == 0 and getattr(parsed, "bozo", False):
             bozo_exception = getattr(parsed, "bozo_exception", "Unknown parse error")
@@ -289,7 +283,7 @@ class Feeds:
             )
             return
 
-        ttl_interval = parse_feed_ttl_interval(parsed.feed)
+        ttl_interval = parse_feed_ttl_interval(parsed_feed)
         if ttl_interval is not None:
             refresh_interval = ttl_interval
 
@@ -299,11 +293,11 @@ class Feeds:
             refresh_interval,
         )
 
-        feed_title = str(parsed.feed.get("title", "")).strip()
+        feed_title = str(parsed_feed.get("title", "")).strip()
         if feed_title == "":
             feed_title = str(source_doc.get("title", source_url)).strip() or source_url
 
-        feed_image_url = extract_feed_image_url(parsed.feed, source_url)
+        feed_image_url = extract_feed_image_url(parsed_feed, source_url)
         if feed_image_url is None:
             existing_image_url = str(source_doc.get("image_url", "")).strip()
             if existing_image_url != "":
@@ -705,16 +699,6 @@ def extract_feed_image_url(feed_data: Any, source_url: str) -> str | None:
             return normalized
 
     return None
-
-
-def import_feedparser_module() -> Any | None:
-    """Import feedparser lazily so worker startup remains robust in dev environments."""
-
-    try:
-        return importlib.import_module("feedparser")
-    except ModuleNotFoundError:
-        logging.error("feedparser module is not installed in the backend environment.")
-        return None
 
 
 def coerce_utc_datetime(value: Any) -> datetime | None:

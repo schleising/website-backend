@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from feed_entry_media import extract_largest_media_image_url
+from feeds.feed_entry_media import extract_largest_media_image_url
 import unittest
 
 
