@@ -44,6 +44,24 @@ def normalize_summary_image_url(candidate: Any, source_url: str) -> str | None:
     return parsed._replace(fragment="").geturl()
 
 
+def extract_first_summary_image_url(summary_html: str | None, source_url: str) -> str | None:
+    """Return the first valid summary <img> URL normalized to an absolute HTTP(S) URL."""
+
+    if not isinstance(summary_html, str) or summary_html.strip() == "":
+        return None
+
+    for match in IMG_TAG_RE.finditer(summary_html):
+        src_value = _extract_img_src(match.group(0))
+        if src_value is None:
+            continue
+
+        normalized = normalize_summary_image_url(src_value, source_url)
+        if normalized is not None:
+            return normalized
+
+    return None
+
+
 def strip_duplicate_summary_image(
     summary_html: str | None,
     media_image_url: str | None,

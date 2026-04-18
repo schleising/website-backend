@@ -6,6 +6,7 @@ from email.utils import parsedate_to_datetime
 import hashlib
 import logging
 import os
+import re
 from time import mktime
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -24,7 +25,7 @@ from .feed_refresh_policy import (
     resolve_source_refresh_interval,
     source_needs_fetch,
 )
-from .feed_summary_images import strip_duplicate_summary_image
+from .feed_summary_images import extract_first_summary_image_url, strip_duplicate_summary_image
 
 from . import (
     FEED_ARTICLES_COLLECTION,
@@ -48,6 +49,7 @@ HARD_DELETE_AFTER = timedelta(days=max(1, int(os.getenv("FEEDS_HARD_DELETE_DAYS"
 REQUEST_TIMEOUT_SECONDS = 20
 MAX_SUMMARY_LENGTH = 60_000
 FAILURE_MODE = os.getenv("FEEDS_FAILURE_MODE", "none").strip().lower()
+HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]*>")
 
 
 @dataclass(slots=True)
@@ -373,17 +375,11 @@ class Feeds:
         if title == "":
             title = link or "Untitled"
 
-        summary_html: str | None = None
-        content_block = entry.get("content")
-        if isinstance(content_block, list) and len(content_block) > 0:
-            first_block = content_block[0]
-            if isinstance(first_block, dict):
-                summary_html = str(first_block.get("value", "")).strip() or None
-
-        if summary_html is None:
-            summary_html = str(entry.get("summary", "")).strip() or None
+        summary_html = select_entry_summary_html(entry)
 
         media_image_url = extract_largest_media_image_url(entry, source_url)
+        if media_image_url is None:
+            media_image_url = extract_first_summary_image_url(summary_html, source_url)
         summary_html = strip_duplicate_summary_image(summary_html, media_image_url, source_url)
 
         if summary_html is not None and len(summary_html) > MAX_SUMMARY_LENGTH:
@@ -576,6 +572,77 @@ def parse_entry_published_at(entry: dict[str, Any]) -> datetime | None:
         return coerce_utc_datetime(parsed_datetime)
 
     return None
+
+
+def _coerce_entry_text(value: Any) -> str | None:
+    """Return a stripped non-empty string from feed entry metadata values."""
+
+    if not isinstance(value, str):
+        return None
+
+    stripped = value.strip()
+    return stripped or None
+
+
+def _is_html_content_type(content_type: str | None) -> bool:
+    """Check whether an entry content MIME type likely contains HTML markup."""
+
+    if content_type is None:
+        return False
+
+    lowered = content_type.strip().lower()
+    return "html" in lowered or "xhtml" in lowered
+
+
+def _looks_like_html(value: str) -> bool:
+    """Detect whether text contains HTML tags that should be preserved."""
+
+    return HTML_TAG_RE.search(value) is not None
+
+
+def select_entry_summary_html(entry: dict[str, Any]) -> str | None:
+    """Choose the richest summary body, preferring HTML over plain-text variants."""
+
+    plain_candidate: str | None = None
+
+    content_block = entry.get("content")
+    if isinstance(content_block, list):
+        for block in content_block:
+            if not isinstance(block, dict):
+                continue
+
+            value = _coerce_entry_text(block.get("value"))
+            if value is None:
+                continue
+
+            block_type = _coerce_entry_text(block.get("type"))
+            if _is_html_content_type(block_type) or _looks_like_html(value):
+                return value
+
+            if plain_candidate is None:
+                plain_candidate = value
+
+    summary_detail = entry.get("summary_detail")
+    if isinstance(summary_detail, dict):
+        detail_value = _coerce_entry_text(summary_detail.get("value"))
+        detail_type = _coerce_entry_text(summary_detail.get("type"))
+
+        if detail_value is not None:
+            if _is_html_content_type(detail_type) or _looks_like_html(detail_value):
+                return detail_value
+
+            if plain_candidate is None:
+                plain_candidate = detail_value
+
+    summary_value = _coerce_entry_text(entry.get("summary"))
+    if summary_value is not None:
+        if _looks_like_html(summary_value):
+            return summary_value
+
+        if plain_candidate is None:
+            plain_candidate = summary_value
+
+    return plain_candidate
 
 
 def coerce_positive_int(value: Any) -> int | None:
