@@ -22,6 +22,8 @@ class FeedSourceDocument(MongoDocumentModel):
     etag: str | None = None
     last_modified: str | None = None
     last_fetched_at: datetime | None = None
+    next_refresh_at: datetime | None = None
+    refresh_interval_seconds: int | None = None
     fetch_status: str = "new"
     last_error: str | None = None
     next_retry_at: datetime | None = None

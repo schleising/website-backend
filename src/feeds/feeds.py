@@ -19,7 +19,7 @@ from urllib3.util.retry import Retry
 from feed_entry_media import extract_largest_media_image_url
 from feed_summary_images import strip_duplicate_summary_image
 
-from feed_refresh_policy import source_needs_fetch
+from feed_refresh_policy import resolve_source_refresh_interval, source_needs_fetch
 from task_scheduler import TaskScheduler
 
 from . import (
@@ -36,8 +36,8 @@ FETCH_INTERVAL = timedelta(
 CYCLE_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_CYCLE_INTERVAL_SECONDS", "15")))
 )
-RETRY_AFTER_FAILURE = timedelta(
-    seconds=max(30, int(os.getenv("FEEDS_RETRY_AFTER_FAILURE_SECONDS", "900")))
+MAX_SCHEDULE_LAG = timedelta(
+    seconds=min(120, max(0, int(os.getenv("FEEDS_MAX_REFRESH_LAG_SECONDS", "120"))))
 )
 SOFT_DELETE_AFTER = timedelta(days=max(1, int(os.getenv("FEEDS_SOFT_DELETE_DAYS", "7"))))
 HARD_DELETE_AFTER = timedelta(days=max(1, int(os.getenv("FEEDS_HARD_DELETE_DAYS", "30"))))
@@ -93,6 +93,33 @@ class Feeds:
         )
         return session
 
+    def _resolve_refresh_interval(self, source_doc: dict[str, Any]) -> timedelta:
+        """Return effective source refresh interval (default or persisted TTL-derived)."""
+
+        return resolve_source_refresh_interval(source_doc, FETCH_INTERVAL)
+
+    def _compute_next_refresh_at(
+        self,
+        source_id: ObjectId,
+        last_refresh_at: datetime,
+        refresh_interval: timedelta,
+    ) -> datetime:
+        """Compute next refresh time using bounded deterministic stagger."""
+
+        normalized_interval = max(timedelta(seconds=5), refresh_interval)
+        stagger_budget = min(MAX_SCHEDULE_LAG, normalized_interval)
+
+        if stagger_budget <= timedelta(0):
+            return last_refresh_at + normalized_interval
+
+        seed = f"{source_id}:{int(normalized_interval.total_seconds())}"
+        digest = hashlib.sha256(seed.encode("utf-8")).digest()
+        stagger_seconds = int.from_bytes(digest[:2], "big") % (
+            int(stagger_budget.total_seconds()) + 1
+        )
+
+        return last_refresh_at + normalized_interval + timedelta(seconds=stagger_seconds)
+
     def run_cycle(self) -> None:
         """Execute one ingestion/retention cycle."""
 
@@ -135,8 +162,17 @@ class Feeds:
 
         sources: list[dict[str, Any]] = []
         for source in cursor:
-            if source_needs_fetch(source, now, FETCH_INTERVAL):
+            if source_needs_fetch(source, now, FETCH_INTERVAL, MAX_SCHEDULE_LAG):
                 sources.append(source)
+
+        earliest = datetime.min.replace(tzinfo=timezone.utc)
+        sources.sort(
+            key=lambda source: (
+                coerce_utc_datetime(source.get("next_refresh_at"))
+                or coerce_utc_datetime(source.get("last_fetched_at"))
+                or earliest
+            )
+        )
 
         return sources
 
@@ -153,11 +189,19 @@ class Feeds:
             return
 
         if FAILURE_MODE == "timeout":
-            self._record_fetch_failure(source_id, "Simulated timeout failure mode.")
+            self._record_fetch_failure(
+                source_doc,
+                source_id,
+                "Simulated timeout failure mode.",
+            )
             return
 
         if FAILURE_MODE == "http500":
-            self._record_fetch_failure(source_id, "Simulated upstream HTTP 500 failure mode.")
+            self._record_fetch_failure(
+                source_doc,
+                source_id,
+                "Simulated upstream HTTP 500 failure mode.",
+            )
             return
 
         request_headers: dict[str, str] = {}
@@ -176,12 +220,18 @@ class Feeds:
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
         except requests.RequestException as exc:
-            self._record_fetch_failure(source_id, f"Network error: {exc}")
+            self._record_fetch_failure(source_doc, source_id, f"Network error: {exc}")
             return
 
         now = datetime.now(timezone.utc)
+        refresh_interval = self._resolve_refresh_interval(source_doc)
 
         if response.status_code == 304:
+            next_refresh_at = self._compute_next_refresh_at(
+                source_id,
+                now,
+                refresh_interval,
+            )
             FEED_SOURCES_COLLECTION.update_one(
                 {"_id": source_id},
                 {
@@ -189,6 +239,8 @@ class Feeds:
                         "fetch_status": "not_modified",
                         "last_error": None,
                         "next_retry_at": None,
+                        "next_refresh_at": next_refresh_at,
+                        "refresh_interval_seconds": int(refresh_interval.total_seconds()),
                         "force_refresh_requested_at": None,
                         "last_fetched_at": now,
                         "updated_at": now,
@@ -199,6 +251,7 @@ class Feeds:
 
         if response.status_code >= 400:
             self._record_fetch_failure(
+                source_doc,
                 source_id,
                 f"HTTP {response.status_code}",
             )
@@ -207,6 +260,7 @@ class Feeds:
         feedparser_module = import_feedparser_module()
         if feedparser_module is None:
             self._record_fetch_failure(
+                source_doc,
                 source_id,
                 "feedparser dependency is not installed.",
             )
@@ -221,8 +275,22 @@ class Feeds:
 
         if len(entries) == 0 and getattr(parsed, "bozo", False):
             bozo_exception = getattr(parsed, "bozo_exception", "Unknown parse error")
-            self._record_fetch_failure(source_id, f"Parse error: {bozo_exception}")
+            self._record_fetch_failure(
+                source_doc,
+                source_id,
+                f"Parse error: {bozo_exception}",
+            )
             return
+
+        ttl_interval = parse_feed_ttl_interval(parsed.feed)
+        if ttl_interval is not None:
+            refresh_interval = ttl_interval
+
+        next_refresh_at = self._compute_next_refresh_at(
+            source_id,
+            now,
+            refresh_interval,
+        )
 
         feed_title = str(parsed.feed.get("title", "")).strip()
         if feed_title == "":
@@ -245,6 +313,8 @@ class Feeds:
                     "fetch_status": "ok",
                     "last_error": None,
                     "next_retry_at": None,
+                    "next_refresh_at": next_refresh_at,
+                    "refresh_interval_seconds": int(refresh_interval.total_seconds()),
                     "force_refresh_requested_at": None,
                     "last_fetched_at": now,
                     "updated_at": now,
@@ -258,20 +328,34 @@ class Feeds:
                 continue
             self._upsert_article(source_id, normalized)
 
-    def _record_fetch_failure(self, source_id: ObjectId, reason: str) -> None:
-        """Persist source fetch failure metadata and retry window."""
+    def _record_fetch_failure(
+        self,
+        source_doc: dict[str, Any],
+        source_id: ObjectId,
+        reason: str,
+    ) -> None:
+        """Persist source fetch failure metadata and the next scheduled refresh time."""
 
         if FEED_SOURCES_COLLECTION is None:
             return
 
         now = datetime.now(timezone.utc)
+        refresh_interval = self._resolve_refresh_interval(source_doc)
+        next_refresh_at = self._compute_next_refresh_at(
+            source_id,
+            now,
+            refresh_interval,
+        )
+
         FEED_SOURCES_COLLECTION.update_one(
             {"_id": source_id},
             {
                 "$set": {
                     "fetch_status": "error",
                     "last_error": reason,
-                    "next_retry_at": now + RETRY_AFTER_FAILURE,
+                    "next_retry_at": next_refresh_at,
+                    "next_refresh_at": next_refresh_at,
+                    "refresh_interval_seconds": int(refresh_interval.total_seconds()),
                     "force_refresh_requested_at": None,
                     "last_fetched_at": now,
                     "updated_at": now,
@@ -491,6 +575,71 @@ def parse_entry_published_at(entry: dict[str, Any]) -> datetime | None:
         return coerce_utc_datetime(parsed_datetime)
 
     return None
+
+
+def coerce_positive_int(value: Any) -> int | None:
+    """Return a positive integer when the value can be coerced safely."""
+
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, int):
+        return value if value > 0 else None
+
+    if isinstance(value, float):
+        as_int = int(value)
+        return as_int if as_int > 0 else None
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped == "":
+            return None
+
+        try:
+            as_int = int(float(stripped))
+        except ValueError:
+            return None
+
+        return as_int if as_int > 0 else None
+
+    return None
+
+
+def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
+    """Extract feed-provided TTL/syndication cadence as a refresh interval."""
+
+    if not hasattr(feed_data, "get"):
+        return None
+
+    ttl_minutes = coerce_positive_int(feed_data.get("ttl"))
+    if ttl_minutes is not None:
+        return timedelta(seconds=max(5, ttl_minutes * 60))
+
+    # Support RSS Syndication module metadata when TTL is absent.
+    update_period = str(
+        feed_data.get("sy_updateperiod")
+        or feed_data.get("updateperiod")
+        or ""
+    ).strip().lower()
+    update_frequency = coerce_positive_int(
+        feed_data.get("sy_updatefrequency")
+        or feed_data.get("updatefrequency")
+        or 1
+    )
+
+    period_seconds = {
+        "hourly": 3600,
+        "daily": 86400,
+        "weekly": 604800,
+        "monthly": 2592000,
+        "yearly": 31536000,
+    }.get(update_period)
+
+    if period_seconds is None or update_frequency is None:
+        return None
+
+    cadence_seconds = max(5, int(period_seconds / update_frequency))
+    return timedelta(seconds=cadence_seconds)
 
 
 def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:
