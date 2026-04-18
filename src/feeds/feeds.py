@@ -357,9 +357,14 @@ class Feeds:
                 "dedupe_key": parsed_entry.dedupe_key,
             },
             {
-                "$set": article_document.model_dump(by_alias=True, exclude={"id"}),
+                "$set": article_document.model_dump(
+                    by_alias=True,
+                    exclude={"id", "is_deleted", "deleted_at"},
+                ),
                 "$setOnInsert": {
                     "created_at": now,
+                    "is_deleted": False,
+                    "deleted_at": None,
                 },
             },
             upsert=True,
@@ -381,12 +386,11 @@ class Feeds:
 
         feed_user_map = build_feed_user_map()
 
+        # Retention uses first-seen age (fetched_at), not publication date, so
+        # freshly fetched back-catalog articles are not deleted immediately.
         soft_delete_query = {
             "is_deleted": False,
-            "$or": [
-                {"published_at": {"$lte": soft_cutoff}},
-                {"published_at": None, "fetched_at": {"$lte": soft_cutoff}},
-            ],
+            "fetched_at": {"$lte": soft_cutoff},
         }
 
         soft_candidates = FEED_ARTICLES_COLLECTION.find(
@@ -395,6 +399,7 @@ class Feeds:
         )
 
         soft_delete_ids: list[ObjectId] = []
+        soft_skipped_unread = 0
         for article_doc in soft_candidates:
             article_id = article_doc.get("_id")
             feed_id = article_doc.get("feed_id")
@@ -402,6 +407,7 @@ class Feeds:
                 continue
 
             if article_has_unread_subscribers(article_id, feed_id, feed_user_map):
+                soft_skipped_unread += 1
                 continue
 
             soft_delete_ids.append(article_id)
@@ -417,6 +423,12 @@ class Feeds:
                 },
             )
 
+        logging.debug(
+            "Retention soft-delete: marked=%d skipped_unread=%d",
+            len(soft_delete_ids),
+            soft_skipped_unread,
+        )
+
         hard_candidates = FEED_ARTICLES_COLLECTION.find(
             {
                 "is_deleted": True,
@@ -426,6 +438,7 @@ class Feeds:
         )
 
         hard_delete_ids: list[ObjectId] = []
+        hard_skipped_unread = 0
         for article_doc in hard_candidates:
             article_id = article_doc.get("_id")
             feed_id = article_doc.get("feed_id")
@@ -433,6 +446,7 @@ class Feeds:
                 continue
 
             if article_has_unread_subscribers(article_id, feed_id, feed_user_map):
+                hard_skipped_unread += 1
                 continue
 
             hard_delete_ids.append(article_id)
@@ -442,6 +456,12 @@ class Feeds:
             USER_ARTICLE_STATES_COLLECTION.delete_many(
                 {"article_id": {"$in": hard_delete_ids}}
             )
+
+        logging.debug(
+            "Retention hard-purge: purged=%d skipped_unread=%d",
+            len(hard_delete_ids),
+            hard_skipped_unread,
+        )
 
 
 def parse_entry_published_at(entry: dict[str, Any]) -> datetime | None:
