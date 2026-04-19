@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from html import unescape
 import hashlib
 import logging
 import os
 import re
-from time import mktime
+from threading import Lock, Thread
+from time import mktime, monotonic, sleep
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -35,6 +38,30 @@ from . import (
 )
 from .models import FeedArticleDocument
 
+
+def _read_env_positive_int(name: str, default: int, minimum: int = 1) -> int:
+    """Read a positive integer env var with fallback defaults."""
+
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        parsed = default
+
+    return max(minimum, parsed)
+
+
+def _read_env_non_negative_float(name: str, default: float) -> float:
+    """Read a non-negative float env var with fallback defaults."""
+
+    raw_value = str(os.getenv(name, str(default))).strip()
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        parsed = default
+
+    return max(0.0, parsed)
+
 FETCH_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "900")))
 )
@@ -47,9 +74,77 @@ MAX_SCHEDULE_LAG = timedelta(
 SOFT_DELETE_AFTER = timedelta(days=max(1, int(os.getenv("FEEDS_SOFT_DELETE_DAYS", "7"))))
 HARD_DELETE_AFTER = timedelta(days=max(1, int(os.getenv("FEEDS_HARD_DELETE_DAYS", "30"))))
 REQUEST_TIMEOUT_SECONDS = 20
+ARTICLE_IMAGE_REQUEST_TIMEOUT_SECONDS = _read_env_positive_int(
+    "FEEDS_ARTICLE_IMAGE_REQUEST_TIMEOUT_SECONDS",
+    default=8,
+    minimum=2,
+)
+ARTICLE_IMAGE_SCRAPE_MIN_INTERVAL_SECONDS = max(
+    0.25,
+    _read_env_non_negative_float(
+        "FEEDS_ARTICLE_IMAGE_SCRAPE_MIN_INTERVAL_SECONDS",
+        default=1.0,
+    ),
+)
+ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS = max(
+    5.0,
+    _read_env_non_negative_float(
+        "FEEDS_ARTICLE_IMAGE_SCRAPE_HOST_MIN_INTERVAL_SECONDS",
+        default=5.0,
+    ),
+)
+ARTICLE_IMAGE_FAILURE_COOLDOWN_SECONDS = max(
+    5.0,
+    _read_env_non_negative_float(
+        "FEEDS_ARTICLE_IMAGE_SCRAPE_FAILURE_COOLDOWN_SECONDS",
+        default=300.0,
+    ),
+)
+ARTICLE_IMAGE_RETRY_AFTER_MAX_SECONDS = _read_env_positive_int(
+    "FEEDS_ARTICLE_IMAGE_SCRAPE_RETRY_AFTER_MAX_SECONDS",
+    default=3600,
+    minimum=30,
+)
+ARTICLE_IMAGE_MAX_REDIRECTS = _read_env_positive_int(
+    "FEEDS_ARTICLE_IMAGE_SCRAPE_MAX_REDIRECTS",
+    default=5,
+    minimum=1,
+)
+ARTICLE_IMAGE_SCAN_MAX_CHARS = _read_env_positive_int(
+    "FEEDS_ARTICLE_IMAGE_SCAN_MAX_CHARS",
+    default=200_000,
+    minimum=10_000,
+)
+ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS = _read_env_non_negative_float(
+    "FEEDS_ARTICLE_IMAGE_SCRAPE_RESULT_CACHE_TTL_SECONDS",
+    default=3600.0,
+)
+ARTICLE_IMAGE_RESULT_CACHE_MAX_ENTRIES = _read_env_positive_int(
+    "FEEDS_ARTICLE_IMAGE_SCRAPE_RESULT_CACHE_MAX_ENTRIES",
+    default=5000,
+    minimum=100,
+)
 MAX_SUMMARY_LENGTH = 60_000
 FAILURE_MODE = os.getenv("FEEDS_FAILURE_MODE", "none").strip().lower()
 HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]*>")
+META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+META_ATTR_RE = re.compile(
+    r"\b([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
+    re.IGNORECASE,
+)
+
+META_IMAGE_PROPERTY_VALUES = {
+    "og:image",
+    "og:image:url",
+    "og:image:secure_url",
+}
+META_IMAGE_NAME_VALUES = {
+    "twitter:image",
+    "twitter:image:src",
+    "og:image",
+    "og:image:url",
+    "og:image:secure_url",
+}
 
 
 @dataclass(slots=True)
@@ -65,12 +160,29 @@ class ParsedEntry:
     media_image_url: str | None
 
 
+@dataclass(slots=True)
+class ArticleImageScrapeJob:
+    """Represents one deferred article page image scrape request."""
+
+    article_id: ObjectId
+    article_url: str
+
+
 class Feeds:
     """Background feed worker that fetches unique subscriptions and applies retention."""
 
     def __init__(self, scheduler: TaskScheduler) -> None:
         self.scheduler = scheduler
-        self.requests_session = self._build_session()
+        self.requests_session = self._build_session(enable_retries=True)
+        self.article_scrape_session = self._build_session(enable_retries=False)
+        self.article_scrape_session.max_redirects = ARTICLE_IMAGE_MAX_REDIRECTS
+        self._next_article_image_scrape_at_monotonic = 0.0
+        self._next_article_image_scrape_at_by_host_monotonic: dict[str, float] = {}
+        self._article_image_scrape_host_backoff_until_monotonic: dict[str, float] = {}
+        self._article_image_scrape_result_cache: dict[str, tuple[float, str | None]] = {}
+        self._article_image_scrape_queue: deque[ArticleImageScrapeJob] = deque()
+        self._article_image_scrape_thread: Thread | None = None
+        self._article_image_scrape_lock = Lock()
 
         self.scheduler.schedule_task(
             datetime.now(timezone.utc),
@@ -78,25 +190,364 @@ class Feeds:
             CYCLE_INTERVAL,
         )
 
-    def _build_session(self) -> requests.Session:
+    def _wait_for_article_image_scrape_slot(self, hostname: str | None) -> None:
+        """Apply global + host-specific pace limits to article image scrape requests."""
+
+        if (
+            ARTICLE_IMAGE_SCRAPE_MIN_INTERVAL_SECONDS <= 0
+            and ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS <= 0
+        ):
+            return
+
+        now_monotonic = monotonic()
+        next_allowed_at = self._next_article_image_scrape_at_monotonic
+        if isinstance(hostname, str) and hostname != "":
+            next_allowed_at = max(
+                next_allowed_at,
+                self._next_article_image_scrape_at_by_host_monotonic.get(hostname, 0.0),
+            )
+
+        wait_seconds = next_allowed_at - now_monotonic
+        if wait_seconds > 0:
+            sleep(wait_seconds)
+            now_monotonic = monotonic()
+
+        if ARTICLE_IMAGE_SCRAPE_MIN_INTERVAL_SECONDS > 0:
+            self._next_article_image_scrape_at_monotonic = (
+                now_monotonic + ARTICLE_IMAGE_SCRAPE_MIN_INTERVAL_SECONDS
+            )
+
+        if (
+            isinstance(hostname, str)
+            and hostname != ""
+            and ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS > 0
+        ):
+            self._next_article_image_scrape_at_by_host_monotonic[hostname] = (
+                now_monotonic + ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS
+            )
+
+    def _prune_article_image_result_cache(self, now_monotonic: float) -> None:
+        """Keep result cache bounded and remove stale URL entries."""
+
+        if ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS <= 0:
+            self._article_image_scrape_result_cache.clear()
+            return
+
+        if (
+            len(self._article_image_scrape_result_cache)
+            <= ARTICLE_IMAGE_RESULT_CACHE_MAX_ENTRIES
+        ):
+            return
+
+        cutoff = now_monotonic - ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS
+        stale_urls = [
+            article_url
+            for article_url, (cached_at, _) in self._article_image_scrape_result_cache.items()
+            if cached_at <= cutoff
+        ]
+        for article_url in stale_urls:
+            self._article_image_scrape_result_cache.pop(article_url, None)
+
+        overflow = (
+            len(self._article_image_scrape_result_cache)
+            - ARTICLE_IMAGE_RESULT_CACHE_MAX_ENTRIES
+        )
+        if overflow <= 0:
+            return
+
+        oldest_first_urls = sorted(
+            self._article_image_scrape_result_cache.items(),
+            key=lambda item: item[1][0],
+        )
+        for article_url, _ in oldest_first_urls[:overflow]:
+            self._article_image_scrape_result_cache.pop(article_url, None)
+
+    def _get_cached_article_meta_image_url(
+        self,
+        normalized_article_url: str,
+        now_monotonic: float,
+    ) -> tuple[bool, str | None]:
+        """Return a cached scrape result for an article URL when still fresh."""
+
+        if ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS <= 0:
+            return False, None
+
+        cache_entry = self._article_image_scrape_result_cache.get(normalized_article_url)
+        if cache_entry is None:
+            return False, None
+
+        cached_at, cached_media_image_url = cache_entry
+        if (now_monotonic - cached_at) > ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS:
+            self._article_image_scrape_result_cache.pop(normalized_article_url, None)
+            return False, None
+
+        return True, cached_media_image_url
+
+    def _cache_article_meta_image_url(
+        self,
+        normalized_article_url: str,
+        media_image_url: str | None,
+    ) -> None:
+        """Store the scrape outcome for an article URL to avoid repeat requests."""
+
+        if ARTICLE_IMAGE_RESULT_CACHE_TTL_SECONDS <= 0:
+            return
+
+        now_monotonic = monotonic()
+        self._article_image_scrape_result_cache[normalized_article_url] = (
+            now_monotonic,
+            media_image_url,
+        )
+        self._prune_article_image_result_cache(now_monotonic)
+
+    def _is_article_image_host_backed_off(
+        self,
+        hostname: str,
+        now_monotonic: float,
+    ) -> bool:
+        """Check whether a host is currently in cooldown after failures or 429."""
+
+        backed_off_until = self._article_image_scrape_host_backoff_until_monotonic.get(hostname)
+        if backed_off_until is None:
+            return False
+
+        if now_monotonic >= backed_off_until:
+            self._article_image_scrape_host_backoff_until_monotonic.pop(hostname, None)
+            return False
+
+        return True
+
+    def _set_article_image_host_backoff(
+        self,
+        hostname: str,
+        retry_after_header: str | None,
+    ) -> None:
+        """Back off a host after rate-limit/server errors to avoid hammering."""
+
+        if hostname == "":
+            return
+
+        retry_after_seconds = parse_retry_after_seconds(retry_after_header)
+        if retry_after_seconds is None or retry_after_seconds <= 0:
+            retry_after_seconds = ARTICLE_IMAGE_FAILURE_COOLDOWN_SECONDS
+
+        if retry_after_seconds <= 0:
+            return
+
+        bounded_backoff = min(
+            float(ARTICLE_IMAGE_RETRY_AFTER_MAX_SECONDS),
+            max(ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS, retry_after_seconds),
+        )
+
+        self._article_image_scrape_host_backoff_until_monotonic[hostname] = (
+            monotonic() + bounded_backoff
+        )
+
+    def _mark_article_image_host_request(
+        self,
+        hostname: str,
+        request_count: int = 1,
+    ) -> None:
+        """Record host request volume so redirect chains cannot amplify request rate."""
+
+        if hostname == "" or ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS <= 0:
+            return
+
+        normalized_request_count = max(1, request_count)
+        holdoff_seconds = ARTICLE_IMAGE_HOST_MIN_INTERVAL_SECONDS * normalized_request_count
+
+        self._next_article_image_scrape_at_by_host_monotonic[hostname] = max(
+            self._next_article_image_scrape_at_by_host_monotonic.get(hostname, 0.0),
+            monotonic() + holdoff_seconds,
+        )
+
+    def _extract_article_meta_image_url(self, article_url: str) -> str | None:
+        """Fetch article HTML and extract a representative meta-image URL."""
+
+        normalized_article_url = normalize_feed_asset_url(article_url, article_url)
+        if normalized_article_url is None:
+            return None
+
+        now_monotonic = monotonic()
+        has_cached_result, cached_media_image_url = self._get_cached_article_meta_image_url(
+            normalized_article_url,
+            now_monotonic,
+        )
+        if has_cached_result:
+            return cached_media_image_url
+
+        requested_hostname = urlparse(normalized_article_url).netloc.strip().lower()
+        if requested_hostname != "" and self._is_article_image_host_backed_off(
+            requested_hostname,
+            now_monotonic,
+        ):
+            return None
+
+        self._wait_for_article_image_scrape_slot(requested_hostname)
+
+        try:
+            response = self.article_scrape_session.get(
+                normalized_article_url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                },
+                timeout=ARTICLE_IMAGE_REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            logging.debug(
+                "Article meta-image fetch failed for %s: %s",
+                normalized_article_url,
+                exc,
+            )
+            if requested_hostname != "":
+                self._set_article_image_host_backoff(requested_hostname, None)
+            self._cache_article_meta_image_url(normalized_article_url, None)
+            return None
+
+        host_request_counts: Counter[str] = Counter()
+        for hop_response in [*response.history, response]:
+            hop_hostname = urlparse(str(hop_response.url).strip()).netloc.strip().lower()
+            if hop_hostname != "":
+                host_request_counts[hop_hostname] += 1
+
+        for hop_hostname, hop_count in host_request_counts.items():
+            self._mark_article_image_host_request(hop_hostname, request_count=hop_count)
+
+        response_hostname = urlparse(str(response.url).strip()).netloc.strip().lower()
+
+        if response.status_code == 429 or response.status_code >= 500:
+            if requested_hostname != "":
+                self._set_article_image_host_backoff(
+                    requested_hostname,
+                    response.headers.get("Retry-After"),
+                )
+            if response_hostname != "" and response_hostname != requested_hostname:
+                self._set_article_image_host_backoff(
+                    response_hostname,
+                    response.headers.get("Retry-After"),
+                )
+
+        if response.status_code >= 400:
+            self._cache_article_meta_image_url(normalized_article_url, None)
+            return None
+
+        page_url = str(response.url).strip() or normalized_article_url
+        html_body = response.text
+        if html_body.strip() == "":
+            self._cache_article_meta_image_url(normalized_article_url, None)
+            return None
+
+        if len(html_body) > ARTICLE_IMAGE_SCAN_MAX_CHARS:
+            html_body = html_body[:ARTICLE_IMAGE_SCAN_MAX_CHARS]
+
+        media_image_url = extract_meta_image_url(html_body, page_url)
+        self._cache_article_meta_image_url(normalized_article_url, media_image_url)
+        return media_image_url
+
+    def _enqueue_article_image_scrape_jobs(self, jobs: list[ArticleImageScrapeJob]) -> None:
+        """Queue first-seen no-image articles for background meta-image scraping."""
+
+        if len(jobs) == 0:
+            return
+
+        with self._article_image_scrape_lock:
+            self._article_image_scrape_queue.extend(jobs)
+
+        self._start_article_image_scrape_thread_if_idle()
+
+    def _start_article_image_scrape_thread_if_idle(self) -> None:
+        """Ensure at most one background article-image scrape thread is active."""
+
+        thread_to_start: Thread | None = None
+
+        with self._article_image_scrape_lock:
+            active_thread = self._article_image_scrape_thread
+            if active_thread is not None and active_thread.is_alive():
+                return
+
+            if len(self._article_image_scrape_queue) == 0:
+                self._article_image_scrape_thread = None
+                return
+
+            thread_to_start = Thread(
+                target=self._run_article_image_scrape_worker,
+                name="feeds-article-image-scraper",
+                daemon=True,
+            )
+            self._article_image_scrape_thread = thread_to_start
+
+        if thread_to_start is not None:
+            thread_to_start.start()
+
+    def _run_article_image_scrape_worker(self) -> None:
+        """Process queued article image scrape jobs sequentially."""
+
+        while True:
+            with self._article_image_scrape_lock:
+                if len(self._article_image_scrape_queue) == 0:
+                    self._article_image_scrape_thread = None
+                    return
+
+                job = self._article_image_scrape_queue.popleft()
+
+            try:
+                self._process_article_image_scrape_job(job)
+            except Exception as exc:
+                logging.exception("Article image scrape job failed unexpectedly: %s", exc)
+
+    def _process_article_image_scrape_job(self, job: ArticleImageScrapeJob) -> None:
+        """Fetch and persist one deferred article image when available."""
+
+        if FEED_ARTICLES_COLLECTION is None:
+            return
+
+        media_image_url = self._extract_article_meta_image_url(job.article_url)
+        if media_image_url is None:
+            return
+
+        FEED_ARTICLES_COLLECTION.update_one(
+            {
+                "_id": job.article_id,
+                "$or": [
+                    {"media_image_url": None},
+                    {"media_image_url": ""},
+                ],
+            },
+            {
+                "$set": {
+                    "media_image_url": media_image_url,
+                }
+            },
+        )
+
+    def _build_session(self, *, enable_retries: bool) -> requests.Session:
         """Create a requests session with conservative retry behavior."""
 
         session = requests.Session()
-        retry_policy = Retry(
-            total=3,
-            backoff_factor=0.4,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"],
-        )
+
+        if enable_retries:
+            retry_policy: Retry | int = Retry(
+                total=3,
+                backoff_factor=0.4,
+                status_forcelist=[429, 500, 502, 503, 504],
+                allowed_methods=["GET"],
+            )
+        else:
+            # Article scraping must never burst via transparent retry storms.
+            retry_policy = 0
+
         adapter = HTTPAdapter(max_retries=retry_policy)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        session.headers.update(
-            {
-                "User-Agent": "website3-feed-worker/1.0",
-                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9,*/*;q=0.8",
-            }
-        )
+
+        session.headers.update({"User-Agent": "website3-feed-worker/1.0"})
+        if enable_retries:
+            session.headers.update(
+                {
+                    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9,*/*;q=0.8",
+                }
+            )
+
         return session
 
     def _resolve_refresh_interval(self, source_doc: dict[str, Any]) -> timedelta:
@@ -142,11 +593,16 @@ class Feeds:
             return
 
         try:
+            pending_scrape_jobs: list[ArticleImageScrapeJob] = []
+
             sources = self._list_fetchable_sources()
             if len(sources) == 0:
                 logging.debug("No subscribed feeds to fetch.")
             for source in sources:
-                self._fetch_and_store_source(source)
+                pending_scrape_jobs.extend(self._fetch_and_store_source(source))
+
+            if len(pending_scrape_jobs) > 0:
+                self._enqueue_article_image_scrape_jobs(pending_scrape_jobs)
 
             self._apply_retention()
         except (ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect) as exc:
@@ -185,17 +641,19 @@ class Feeds:
 
         return sources
 
-    def _fetch_and_store_source(self, source_doc: dict[str, Any]) -> None:
+    def _fetch_and_store_source(self, source_doc: dict[str, Any]) -> list[ArticleImageScrapeJob]:
         """Fetch one source and upsert parsed entries."""
 
         if FEED_SOURCES_COLLECTION is None:
-            return
+            return []
+
+        pending_scrape_jobs: list[ArticleImageScrapeJob] = []
 
         source_id = source_doc.get("_id")
         source_url = str(source_doc.get("normalized_url", "")).strip()
 
         if not isinstance(source_id, ObjectId) or source_url == "":
-            return
+            return []
 
         if FAILURE_MODE == "timeout":
             self._record_fetch_failure(
@@ -203,7 +661,7 @@ class Feeds:
                 source_id,
                 "Simulated timeout failure mode.",
             )
-            return
+            return []
 
         if FAILURE_MODE == "http500":
             self._record_fetch_failure(
@@ -211,7 +669,7 @@ class Feeds:
                 source_id,
                 "Simulated upstream HTTP 500 failure mode.",
             )
-            return
+            return []
 
         request_headers: dict[str, str] = {}
         etag = source_doc.get("etag")
@@ -230,7 +688,7 @@ class Feeds:
             )
         except requests.RequestException as exc:
             self._record_fetch_failure(source_doc, source_id, f"Network error: {exc}")
-            return
+            return []
 
         now = datetime.now(timezone.utc)
         refresh_interval = self._resolve_refresh_interval(source_doc)
@@ -256,7 +714,7 @@ class Feeds:
                     }
                 },
             )
-            return
+            return []
 
         if response.status_code >= 400:
             self._record_fetch_failure(
@@ -264,7 +722,7 @@ class Feeds:
                 source_id,
                 f"HTTP {response.status_code}",
             )
-            return
+            return []
 
         payload = response.content
         if FAILURE_MODE == "malformed":
@@ -283,7 +741,7 @@ class Feeds:
                 source_id,
                 f"Parse error: {bozo_exception}",
             )
-            return
+            return []
 
         ttl_interval = parse_feed_ttl_interval(parsed_feed)
         if ttl_interval is not None:
@@ -329,7 +787,11 @@ class Feeds:
             normalized = self._parse_feed_entry(source_url, entry)
             if normalized is None:
                 continue
-            self._upsert_article(source_id, normalized)
+            scrape_job = self._upsert_article(source_id, normalized)
+            if scrape_job is not None:
+                pending_scrape_jobs.append(scrape_job)
+
+        return pending_scrape_jobs
 
     def _record_fetch_failure(
         self,
@@ -410,13 +872,38 @@ class Feeds:
             media_image_url=media_image_url,
         )
 
-    def _upsert_article(self, feed_id: ObjectId, parsed_entry: ParsedEntry) -> None:
+    def _upsert_article(
+        self,
+        feed_id: ObjectId,
+        parsed_entry: ParsedEntry,
+    ) -> ArticleImageScrapeJob | None:
         """Upsert one article record keyed by feed_id and dedupe_key."""
 
         if FEED_ARTICLES_COLLECTION is None:
-            return
+            return None
 
         now = datetime.now(timezone.utc)
+        article_query = {
+            "feed_id": feed_id,
+            "dedupe_key": parsed_entry.dedupe_key,
+        }
+        existing_doc = FEED_ARTICLES_COLLECTION.find_one(
+            article_query,
+            {
+                "_id": 1,
+                "media_image_url": 1,
+            },
+        )
+
+        existing_media_image_url: str | None = None
+        if isinstance(existing_doc, dict):
+            existing_media_candidate = str(existing_doc.get("media_image_url", "")).strip()
+            if existing_media_candidate != "":
+                existing_media_image_url = existing_media_candidate
+
+        media_image_url = parsed_entry.media_image_url
+        if media_image_url is None and existing_media_image_url is not None:
+            media_image_url = existing_media_image_url
 
         article_document = FeedArticleDocument(
             feed_id=feed_id,
@@ -426,17 +913,14 @@ class Feeds:
             author=parsed_entry.author,
             summary_html=parsed_entry.summary_html,
             published_at=parsed_entry.published_at,
-            media_image_url=parsed_entry.media_image_url,
+            media_image_url=media_image_url,
             fetched_at=now,
             is_deleted=False,
             deleted_at=None,
         )
 
-        FEED_ARTICLES_COLLECTION.update_one(
-            {
-                "feed_id": feed_id,
-                "dedupe_key": parsed_entry.dedupe_key,
-            },
+        upsert_result = FEED_ARTICLES_COLLECTION.update_one(
+            article_query,
             {
                 "$set": article_document.model_dump(
                     by_alias=True,
@@ -449,6 +933,28 @@ class Feeds:
                 },
             },
             upsert=True,
+        )
+
+        should_enqueue_deferred_scrape = (
+            existing_doc is None and media_image_url is None
+        )
+        if not should_enqueue_deferred_scrape:
+            return None
+
+        article_id = upsert_result.upserted_id
+        if not isinstance(article_id, ObjectId):
+            inserted_doc = FEED_ARTICLES_COLLECTION.find_one(article_query, {"_id": 1})
+            if isinstance(inserted_doc, dict):
+                possible_article_id = inserted_doc.get("_id")
+                if isinstance(possible_article_id, ObjectId):
+                    article_id = possible_article_id
+
+        if not isinstance(article_id, ObjectId):
+            return None
+
+        return ArticleImageScrapeJob(
+            article_id=article_id,
+            article_url=parsed_entry.link,
         )
 
     def _apply_retention(self) -> None:
@@ -572,6 +1078,38 @@ def parse_entry_published_at(entry: dict[str, Any]) -> datetime | None:
         return coerce_utc_datetime(parsed_datetime)
 
     return None
+
+
+def parse_retry_after_seconds(value: Any) -> float | None:
+    """Parse Retry-After as delay-seconds or HTTP-date and return seconds."""
+
+    if value is None:
+        return None
+
+    raw_value = str(value).strip()
+    if raw_value == "":
+        return None
+
+    try:
+        seconds = float(raw_value)
+    except ValueError:
+        seconds = -1.0
+
+    if seconds >= 0:
+        return seconds
+
+    try:
+        retry_after_datetime = parsedate_to_datetime(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+    retry_after_utc = coerce_utc_datetime(retry_after_datetime)
+    if retry_after_utc is None:
+        return None
+
+    now_utc = datetime.now(timezone.utc)
+    delta_seconds = (retry_after_utc - now_utc).total_seconds()
+    return max(0.0, delta_seconds)
 
 
 def _coerce_entry_text(value: Any) -> str | None:
@@ -732,6 +1270,61 @@ def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:
         return None
 
     return normalized
+
+
+def _extract_meta_attributes(meta_tag: str) -> dict[str, str]:
+    """Parse one <meta> tag string into lowercase attribute mappings."""
+
+    attributes: dict[str, str] = {}
+
+    for match in META_ATTR_RE.finditer(meta_tag):
+        attribute_name = str(match.group(1)).strip().lower()
+        if attribute_name == "":
+            continue
+
+        raw_value = ""
+        for group_value in match.groups()[1:]:
+            if isinstance(group_value, str) and group_value.strip() != "":
+                raw_value = group_value.strip()
+                break
+
+        if raw_value == "":
+            continue
+
+        attributes[attribute_name] = unescape(raw_value)
+
+    return attributes
+
+
+def extract_meta_image_url(page_html: str, article_url: str) -> str | None:
+    """Extract the first valid og/twitter image candidate from article HTML."""
+
+    if not isinstance(page_html, str) or page_html.strip() == "":
+        return None
+
+    for meta_match in META_TAG_RE.finditer(page_html):
+        attributes = _extract_meta_attributes(meta_match.group(0))
+        if len(attributes) == 0:
+            continue
+
+        content_value = str(attributes.get("content", "")).strip()
+        if content_value == "":
+            continue
+
+        property_value = str(attributes.get("property", "")).strip().lower()
+        name_value = str(attributes.get("name", "")).strip().lower()
+        itemprop_value = str(attributes.get("itemprop", "")).strip().lower()
+
+        if (
+            property_value in META_IMAGE_PROPERTY_VALUES
+            or name_value in META_IMAGE_NAME_VALUES
+            or itemprop_value == "image"
+        ):
+            normalized = normalize_feed_asset_url(content_value, article_url)
+            if normalized is not None:
+                return normalized
+
+    return None
 
 
 def extract_feed_image_url(feed_data: Any, source_url: str) -> str | None:
