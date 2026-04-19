@@ -227,7 +227,7 @@ class Football:
 
             # Set the default icon if none is provided
             if icon is None:
-                icon = "/icons/football/android-chrome-192x192.png"
+                icon = "/icons/football/webapp/android-chrome-192x192.png"
 
             # Log the notification
             logging.info(f"Sending Notification: {title} - {message}")
