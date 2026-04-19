@@ -263,7 +263,8 @@ class Football:
                                 "body": message,
                                 "icon": icon,
                                 "badge": "/icons/football/badge-192x192.png",
-                                "url": "/football/",
+                                "url": "https://www.schleising.net/football/",
+                                "webapp_url": "https://football.schleising.net/",
                                 "requireInteraction": True,
                             }
                         ),
