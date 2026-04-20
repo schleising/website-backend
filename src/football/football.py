@@ -37,6 +37,14 @@ from task_scheduler import TaskScheduler
 from utils.network_utils import get_request
 
 UPDATE_DELTA = timedelta(seconds=4)
+FOOTBALL_WEBAPP_ORIGIN = "https://football.schleising.net"
+FOOTBALL_PUSH_ASSET_VERSION = "1.0.4"
+FOOTBALL_PUSH_DEFAULT_ICON_PATH = (
+    f"/icons/football/webapp/android-chrome-192x192.png?v{FOOTBALL_PUSH_ASSET_VERSION}"
+)
+FOOTBALL_PUSH_BADGE_PATH = (
+    f"/icons/football/badge-192x192.png?v{FOOTBALL_PUSH_ASSET_VERSION}"
+)
 
 
 class Notification(BaseModel):
@@ -227,7 +235,14 @@ class Football:
 
             # Set the default icon if none is provided
             if icon is None:
-                icon = "/icons/football/webapp/android-chrome-192x192.png"
+                notification_icon = FOOTBALL_PUSH_DEFAULT_ICON_PATH
+            else:
+                separator = "&" if "?" in icon else "?"
+                notification_icon = (
+                    f"{icon}{separator}v{FOOTBALL_PUSH_ASSET_VERSION}"
+                )
+
+            notification_badge = FOOTBALL_PUSH_BADGE_PATH
 
             # Log the notification
             logging.info(f"Sending Notification: {title} - {message}")
@@ -261,10 +276,10 @@ class Football:
                             {
                                 "title": title,
                                 "body": message,
-                                "icon": icon,
-                                "badge": "/icons/football/badge-192x192.png",
+                                "icon": notification_icon,
+                                "badge": notification_badge,
                                 "url": "https://www.schleising.net/football/",
-                                "webapp_url": "https://football.schleising.net/",
+                                "webapp_url": f"{FOOTBALL_WEBAPP_ORIGIN}/",
                                 "requireInteraction": True,
                             }
                         ),
