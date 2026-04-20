@@ -38,6 +38,8 @@ class FeedArticleDocument(MongoDocumentModel):
     id: ObjectId | None = Field(default=None, alias="_id")
     feed_id: ObjectId
     dedupe_key: str
+    canonical_url: str | None = None
+    external_id: str | None = None
     title: str
     link: str
     author: str | None = None

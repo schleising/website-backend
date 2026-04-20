@@ -17,11 +17,17 @@ def _index_matches(
     index_meta: dict[str, Any],
     keys: list[tuple[str, int]],
     unique: bool,
+    partial_filter_expression: dict[str, Any] | None,
 ) -> bool:
     existing_keys = index_meta.get("key")
     existing_unique = bool(index_meta.get("unique", False))
+    existing_partial = index_meta.get("partialFilterExpression")
 
-    return existing_keys == keys and existing_unique == unique
+    return (
+        existing_keys == keys
+        and existing_unique == unique
+        and existing_partial == partial_filter_expression
+    )
 
 
 def _keys_match(index_meta: dict[str, Any], keys: list[tuple[str, int]]) -> bool:
@@ -33,12 +39,13 @@ def _ensure_index(
     keys: list[tuple[str, int]],
     *,
     unique: bool = False,
+    partial_filter_expression: dict[str, Any] | None = None,
 ) -> None:
     # Reuse equivalent existing indexes regardless of name to avoid name conflicts.
     existing_indexes = collection.index_information()
 
     for index_meta in existing_indexes.values():
-        if _index_matches(index_meta, keys, unique):
+        if _index_matches(index_meta, keys, unique, partial_filter_expression):
             return
 
     # If an index already exists on the same key pattern with different options,
@@ -48,8 +55,13 @@ def _ensure_index(
             continue
 
         existing_unique = bool(index_meta.get("unique", False))
+        existing_partial = index_meta.get("partialFilterExpression")
 
-        if unique and not existing_unique:
+        if partial_filter_expression != existing_partial:
+            logging.info(
+                f"Index {collection.full_name}.{index_name} matches keys {keys} but partialFilterExpression differs; requested ensure skipped"
+            )
+        elif unique and not existing_unique:
             logging.warning(
                 f"Index {collection.full_name}.{index_name} matches keys {keys} but is not unique; requested unique index ensure skipped"
             )
@@ -61,7 +73,11 @@ def _ensure_index(
         return
 
     try:
-        collection.create_index(keys, unique=unique)
+        create_kwargs: dict[str, Any] = {"unique": unique}
+        if partial_filter_expression is not None:
+            create_kwargs["partialFilterExpression"] = partial_filter_expression
+
+        collection.create_index(keys, **create_kwargs)
     except OperationFailure as ex:
         # If an equivalent index already exists under another name, keep startup non-fatal.
         if ex.code in (85, 86):
@@ -146,6 +162,22 @@ def ensure_backend_indexes() -> None:
 
     feed_articles = database.get_collection("feed_articles")
     if feed_articles is not None:
+        _ensure_index(
+            feed_articles,
+            [("feed_id", ASCENDING), ("canonical_url", ASCENDING)],
+            unique=True,
+            partial_filter_expression={
+                "canonical_url": {"$type": "string", "$ne": ""},
+            },
+        )
+        _ensure_index(
+            feed_articles,
+            [("feed_id", ASCENDING), ("external_id", ASCENDING)],
+            unique=True,
+            partial_filter_expression={
+                "external_id": {"$type": "string", "$ne": ""},
+            },
+        )
         _ensure_index(
             feed_articles,
             [("feed_id", ASCENDING), ("dedupe_key", ASCENDING)],

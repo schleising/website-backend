@@ -12,7 +12,7 @@ import re
 from threading import Lock, Thread
 from time import mktime, monotonic, sleep
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import feedparser
 from bson import ObjectId
@@ -156,6 +156,8 @@ class ParsedEntry:
     """Normalized article fields extracted from one feed entry."""
 
     dedupe_key: str
+    canonical_url: str | None
+    external_id: str | None
     title: str
     link: str
     author: str | None
@@ -836,10 +838,12 @@ class Feeds:
         """Normalize one feedparser entry into a stable write model."""
 
         link = str(entry.get("link", "")).strip()
+        canonical_url = normalize_article_identity_url(link, source_url)
+        external_id = extract_entry_external_id(entry, source_url)
         title = str(entry.get("title", "")).strip()
 
         if title == "":
-            title = link or "Untitled"
+            title = canonical_url or link or "Untitled"
 
         summary_html = select_entry_summary_html(entry)
 
@@ -854,22 +858,21 @@ class Feeds:
         published_at = parse_entry_published_at(entry)
         author = str(entry.get("author", "")).strip() or None
 
-        dedupe_material = "|".join(
-            [
-                str(entry.get("id", "")).strip(),
-                str(entry.get("guid", "")).strip(),
-                link,
-                title,
-                published_at.isoformat() if published_at is not None else "",
-                source_url,
-            ]
+        dedupe_material = build_article_dedupe_material(
+            canonical_url=canonical_url,
+            external_id=external_id,
+            source_url=source_url,
+            title=title,
+            published_at=published_at,
         )
         dedupe_key = hashlib.sha256(dedupe_material.encode("utf-8")).hexdigest()
 
         return ParsedEntry(
             dedupe_key=dedupe_key,
+            canonical_url=canonical_url,
+            external_id=external_id,
             title=title,
-            link=link or source_url,
+            link=canonical_url or source_url,
             author=author,
             summary_html=summary_html,
             published_at=published_at,
@@ -881,16 +884,13 @@ class Feeds:
         feed_id: ObjectId,
         parsed_entry: ParsedEntry,
     ) -> ArticleImageScrapeJob | None:
-        """Upsert one article record keyed by feed_id and dedupe_key."""
+        """Upsert one article record keyed by canonical URL (fallback external_id/dedupe)."""
 
         if FEED_ARTICLES_COLLECTION is None:
             return None
 
         now = datetime.now(timezone.utc)
-        article_query = {
-            "feed_id": feed_id,
-            "dedupe_key": parsed_entry.dedupe_key,
-        }
+        article_query = build_article_identity_query(feed_id, parsed_entry)
         existing_doc = FEED_ARTICLES_COLLECTION.find_one(
             article_query,
             {
@@ -912,6 +912,8 @@ class Feeds:
         article_document = FeedArticleDocument(
             feed_id=feed_id,
             dedupe_key=parsed_entry.dedupe_key,
+            canonical_url=parsed_entry.canonical_url,
+            external_id=parsed_entry.external_id,
             title=parsed_entry.title,
             link=parsed_entry.link,
             author=parsed_entry.author,
@@ -928,7 +930,7 @@ class Feeds:
             {
                 "$set": article_document.model_dump(
                     by_alias=True,
-                    exclude={"id", "is_deleted", "deleted_at"},
+                    exclude={"id"},
                 ),
                 "$setOnInsert": {
                     "created_at": now,
@@ -1264,6 +1266,106 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
         MAX_REFRESH_INTERVAL,
         timedelta(seconds=cadence_seconds),
     )
+
+
+def normalize_article_identity_url(candidate: Any, source_url: str) -> str | None:
+    """Normalize an entry URL for article identity/upsert matching."""
+
+    if not isinstance(candidate, str):
+        return None
+
+    trimmed = candidate.strip()
+    if trimmed == "" or trimmed.lower() in {"none", "null", "undefined"}:
+        return None
+
+    normalized = urljoin(source_url, trimmed)
+    parsed = urlparse(normalized)
+
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").strip().lower()
+    if scheme not in {"http", "https"} or hostname == "":
+        return None
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        netloc = hostname
+    else:
+        netloc = f"{hostname}:{port}"
+
+    path = parsed.path or "/"
+
+    return urlunparse((scheme, netloc, path, parsed.params, parsed.query, ""))
+
+
+def extract_entry_external_id(entry: dict[str, Any], source_url: str) -> str | None:
+    """Extract a stable feed entry external identifier when available."""
+
+    for key in ("id", "guid"):
+        raw_value = str(entry.get(key, "")).strip()
+        if raw_value == "" or raw_value.lower() in {"none", "null", "undefined"}:
+            continue
+
+        normalized_url = normalize_article_identity_url(raw_value, source_url)
+        return normalized_url or raw_value
+
+    return None
+
+
+def build_article_dedupe_material(
+    *,
+    canonical_url: str | None,
+    external_id: str | None,
+    source_url: str,
+    title: str,
+    published_at: datetime | None,
+) -> str:
+    """Build a secondary dedupe fingerprint material string."""
+
+    if canonical_url is not None:
+        return f"url|{canonical_url}"
+
+    if external_id is not None:
+        return f"external_id|{external_id}"
+
+    return "|".join(
+        [
+            "fallback",
+            title,
+            published_at.isoformat() if published_at is not None else "",
+            source_url,
+        ]
+    )
+
+
+def build_article_identity_query(feed_id: ObjectId, parsed_entry: ParsedEntry) -> dict[str, Any]:
+    """Return the best-available identity query for article upsert matching."""
+
+    if parsed_entry.canonical_url is not None:
+        return {
+            "feed_id": feed_id,
+            "$or": [
+                {"canonical_url": parsed_entry.canonical_url},
+                {"link": parsed_entry.canonical_url},
+            ],
+        }
+
+    if parsed_entry.external_id is not None:
+        return {
+            "feed_id": feed_id,
+            "$or": [
+                {"external_id": parsed_entry.external_id},
+                {"dedupe_key": parsed_entry.dedupe_key},
+            ],
+        }
+
+    return {
+        "feed_id": feed_id,
+        "dedupe_key": parsed_entry.dedupe_key,
+    }
 
 
 def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:
