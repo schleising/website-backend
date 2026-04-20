@@ -3,13 +3,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import unittest
 
-from feeds.feed_refresh_policy import resolve_source_refresh_interval, source_needs_fetch
+from feeds.feed_refresh_policy import (
+    MIN_REFRESH_INTERVAL,
+    resolve_source_refresh_interval,
+    source_needs_fetch,
+)
 
 
 class SourceRefreshPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        self.fetch_interval = timedelta(minutes=5)
+        self.fetch_interval = MIN_REFRESH_INTERVAL
 
     def test_source_needs_fetch_when_never_fetched(self) -> None:
         self.assertTrue(source_needs_fetch({}, self.now, self.fetch_interval))
@@ -34,10 +38,26 @@ class SourceRefreshPolicyTests(unittest.TestCase):
             timedelta(minutes=30),
         )
 
+    def test_source_clamps_persisted_refresh_interval_to_ten_minutes(self) -> None:
+        source_doc = {
+            "refresh_interval_seconds": 60,
+        }
+
+        self.assertEqual(
+            resolve_source_refresh_interval(source_doc, self.fetch_interval),
+            MIN_REFRESH_INTERVAL,
+        )
+
     def test_source_caps_default_refresh_interval_to_thirty_minutes(self) -> None:
         self.assertEqual(
             resolve_source_refresh_interval({}, timedelta(hours=2)),
             timedelta(minutes=30),
+        )
+
+    def test_source_clamps_default_refresh_interval_to_ten_minutes(self) -> None:
+        self.assertEqual(
+            resolve_source_refresh_interval({}, timedelta(minutes=1)),
+            MIN_REFRESH_INTERVAL,
         )
 
     def test_source_does_not_fetch_before_interval_without_force(self) -> None:
@@ -69,6 +89,14 @@ class SourceRefreshPolicyTests(unittest.TestCase):
         }
 
         self.assertTrue(source_needs_fetch(source_doc, self.now, self.fetch_interval))
+
+    def test_source_does_not_fetch_before_min_interval_even_if_next_refresh_elapsed(self) -> None:
+        source_doc = {
+            "last_fetched_at": self.now - timedelta(minutes=1),
+            "next_refresh_at": self.now - timedelta(seconds=1),
+        }
+
+        self.assertFalse(source_needs_fetch(source_doc, self.now, self.fetch_interval))
 
     def test_source_fetches_when_next_refresh_is_later_than_max_allowed_lag(self) -> None:
         source_doc = {

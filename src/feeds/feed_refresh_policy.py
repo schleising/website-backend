@@ -5,6 +5,7 @@ from typing import Any
 
 
 MAX_REFRESH_INTERVAL = timedelta(minutes=30)
+MIN_REFRESH_INTERVAL = timedelta(minutes=10)
 
 
 def _coerce_utc_datetime(value: Any) -> datetime | None:
@@ -53,11 +54,15 @@ def resolve_source_refresh_interval(
 ) -> timedelta:
     """Resolve the effective source refresh interval from persisted metadata."""
 
+    min_seconds = int(MIN_REFRESH_INTERVAL.total_seconds())
     max_seconds = int(MAX_REFRESH_INTERVAL.total_seconds())
-    default_seconds = max(5, min(max_seconds, int(default_fetch_interval.total_seconds())))
+    default_seconds = max(
+        min_seconds,
+        min(max_seconds, int(default_fetch_interval.total_seconds())),
+    )
     persisted_seconds = _coerce_positive_int(source_doc.get("refresh_interval_seconds"))
     effective_seconds = persisted_seconds if persisted_seconds is not None else default_seconds
-    return timedelta(seconds=max(5, min(max_seconds, effective_seconds)))
+    return timedelta(seconds=max(min_seconds, min(max_seconds, effective_seconds)))
 
 
 def source_needs_fetch(
@@ -96,8 +101,14 @@ def source_needs_fetch(
 
         return True
 
+    # Never fetch before the effective interval has elapsed, even if persisted
+    # scheduling metadata is more aggressive from older policy versions.
+    earliest_allowed_refresh = last_fetched_at + effective_interval
+    if now < earliest_allowed_refresh:
+        return False
+
     # Enforce the maximum allowed delay from the expected interval cadence.
-    latest_allowed_refresh = last_fetched_at + effective_interval + bounded_lag
+    latest_allowed_refresh = earliest_allowed_refresh + bounded_lag
     if now >= latest_allowed_refresh:
         return True
 

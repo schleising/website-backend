@@ -24,6 +24,7 @@ from task_scheduler import TaskScheduler
 
 from .feed_entry_media import extract_largest_media_image_url
 from .feed_refresh_policy import (
+    MIN_REFRESH_INTERVAL,
     MAX_REFRESH_INTERVAL,
     resolve_source_refresh_interval,
     source_needs_fetch,
@@ -63,7 +64,10 @@ def _read_env_non_negative_float(name: str, default: float) -> float:
     return max(0.0, parsed)
 
 FETCH_INTERVAL = timedelta(
-    seconds=max(5, int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "900")))
+    seconds=max(
+        int(MIN_REFRESH_INTERVAL.total_seconds()),
+        int(os.getenv("FEEDS_FETCH_INTERVAL_SECONDS", "900")),
+    )
 )
 CYCLE_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_CYCLE_INTERVAL_SECONDS", "15")))
@@ -565,7 +569,7 @@ class Feeds:
 
         normalized_interval = min(
             MAX_REFRESH_INTERVAL,
-            max(timedelta(seconds=5), refresh_interval),
+            max(MIN_REFRESH_INTERVAL, refresh_interval),
         )
         stagger_budget = min(MAX_SCHEDULE_LAG, normalized_interval)
 
@@ -1221,7 +1225,12 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
     if ttl_minutes is not None:
         return min(
             MAX_REFRESH_INTERVAL,
-            timedelta(seconds=max(5, ttl_minutes * 60)),
+            timedelta(
+                seconds=max(
+                    int(MIN_REFRESH_INTERVAL.total_seconds()),
+                    ttl_minutes * 60,
+                )
+            ),
         )
 
     # Support RSS Syndication module metadata when TTL is absent.
@@ -1247,7 +1256,10 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
     if period_seconds is None or update_frequency is None:
         return None
 
-    cadence_seconds = max(5, int(period_seconds / update_frequency))
+    cadence_seconds = max(
+        int(MIN_REFRESH_INTERVAL.total_seconds()),
+        int(period_seconds / update_frequency),
+    )
     return min(
         MAX_REFRESH_INTERVAL,
         timedelta(seconds=cadence_seconds),
