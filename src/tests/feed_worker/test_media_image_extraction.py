@@ -70,6 +70,18 @@ class FeedMediaImageExtractionTests(unittest.TestCase):
 
         self.assertIsNone(extract_largest_media_image_url(entry, SOURCE_URL))
 
+    def test_extract_largest_media_image_rejects_private_network_urls(self) -> None:
+        """Private-network literal hosts should not be accepted as media URLs."""
+
+        entry = {
+            "media_content": [
+                {"url": "http://127.0.0.1/internal.jpg", "width": "1200", "height": "630"},
+                {"url": "https://10.0.0.2/internal.jpg", "width": "1200", "height": "630"},
+            ]
+        }
+
+        self.assertIsNone(extract_largest_media_image_url(entry, SOURCE_URL))
+
 
 if __name__ == "__main__":
     unittest.main()

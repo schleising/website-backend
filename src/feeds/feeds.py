@@ -30,6 +30,7 @@ from .feed_refresh_policy import (
     source_needs_fetch,
 )
 from .feed_summary_images import extract_first_summary_image_url, strip_duplicate_summary_image
+from .url_safety import is_public_http_url
 
 from . import (
     FEED_ARTICLES_COLLECTION,
@@ -114,6 +115,11 @@ ARTICLE_IMAGE_MAX_REDIRECTS = _read_env_positive_int(
     default=5,
     minimum=1,
 )
+SOURCE_FETCH_MAX_REDIRECTS = _read_env_positive_int(
+    "FEEDS_SOURCE_FETCH_MAX_REDIRECTS",
+    default=5,
+    minimum=1,
+)
 ARTICLE_IMAGE_SCAN_MAX_CHARS = _read_env_positive_int(
     "FEEDS_ARTICLE_IMAGE_SCAN_MAX_CHARS",
     default=200_000,
@@ -149,6 +155,7 @@ META_IMAGE_NAME_VALUES = {
     "og:image:url",
     "og:image:secure_url",
 }
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
 
 @dataclass(slots=True)
@@ -181,7 +188,6 @@ class Feeds:
         self.scheduler = scheduler
         self.requests_session = self._build_session(enable_retries=True)
         self.article_scrape_session = self._build_session(enable_retries=False)
-        self.article_scrape_session.max_redirects = ARTICLE_IMAGE_MAX_REDIRECTS
         self._next_article_image_scrape_at_monotonic = 0.0
         self._next_article_image_scrape_at_by_host_monotonic: dict[str, float] = {}
         self._article_image_scrape_host_backoff_until_monotonic: dict[str, float] = {}
@@ -392,12 +398,14 @@ class Feeds:
         self._wait_for_article_image_scrape_slot(requested_hostname)
 
         try:
-            response = self.article_scrape_session.get(
-                normalized_article_url,
+            response = self._safe_get_with_redirects(
+                session=self.article_scrape_session,
+                initial_url=normalized_article_url,
                 headers={
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 },
                 timeout=ARTICLE_IMAGE_REQUEST_TIMEOUT_SECONDS,
+                max_redirects=ARTICLE_IMAGE_MAX_REDIRECTS,
             )
         except requests.RequestException as exc:
             logging.debug(
@@ -556,6 +564,55 @@ class Feeds:
 
         return session
 
+    def _safe_get_with_redirects(
+        self,
+        *,
+        session: requests.Session,
+        initial_url: str,
+        headers: dict[str, str],
+        timeout: int,
+        max_redirects: int,
+    ) -> requests.Response:
+        """Fetch URL with bounded redirects while blocking non-public targets."""
+
+        current_url = str(initial_url).strip()
+        history: list[requests.Response] = []
+
+        for _ in range(max_redirects + 1):
+            if not is_public_http_url(current_url):
+                raise requests.RequestException(f"Blocked non-public URL target: {current_url}")
+
+            response = session.get(
+                current_url,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+
+            if response.status_code not in REDIRECT_STATUS_CODES:
+                response.history = history
+                return response
+
+            redirect_location = str(response.headers.get("Location", "")).strip()
+            if redirect_location == "":
+                response.close()
+                raise requests.RequestException(
+                    f"Redirect response missing Location header: {current_url}"
+                )
+
+            next_url = urljoin(current_url, redirect_location)
+            if not is_public_http_url(next_url):
+                response.close()
+                raise requests.RequestException(f"Blocked non-public redirect target: {next_url}")
+
+            history.append(response)
+            response.close()
+            current_url = next_url
+
+        raise requests.TooManyRedirects(
+            f"Exceeded redirect limit ({max_redirects}) for URL: {initial_url}"
+        )
+
     def _resolve_refresh_interval(self, source_doc: dict[str, Any]) -> timedelta:
         """Return effective source refresh interval (default or persisted TTL-derived)."""
 
@@ -687,14 +744,21 @@ class Feeds:
             request_headers["If-Modified-Since"] = last_modified
 
         try:
-            response = self.requests_session.get(
-                source_url,
+            response = self._safe_get_with_redirects(
+                session=self.requests_session,
+                initial_url=source_url,
                 headers=request_headers,
                 timeout=REQUEST_TIMEOUT_SECONDS,
+                max_redirects=SOURCE_FETCH_MAX_REDIRECTS,
             )
         except requests.RequestException as exc:
             self._record_fetch_failure(source_doc, source_id, f"Network error: {exc}")
             return []
+
+        effective_source_url = (
+            normalize_feed_asset_url(str(response.url).strip(), source_url)
+            or source_url
+        )
 
         now = datetime.now(timezone.utc)
         refresh_interval = self._resolve_refresh_interval(source_doc)
@@ -761,9 +825,9 @@ class Feeds:
 
         feed_title = str(parsed_feed.get("title", "")).strip()
         if feed_title == "":
-            feed_title = str(source_doc.get("title", source_url)).strip() or source_url
+            feed_title = str(source_doc.get("title", effective_source_url)).strip() or effective_source_url
 
-        feed_image_url = extract_feed_image_url(parsed_feed, source_url)
+        feed_image_url = extract_feed_image_url(parsed_feed, effective_source_url)
         if feed_image_url is None:
             existing_image_url = str(source_doc.get("image_url", "")).strip()
             if existing_image_url != "":
@@ -790,7 +854,7 @@ class Feeds:
         )
 
         for entry in entries:
-            normalized = self._parse_feed_entry(source_url, entry)
+            normalized = self._parse_feed_entry(effective_source_url, entry)
             if normalized is None:
                 continue
             scrape_job = self._upsert_article(source_id, normalized)
@@ -1377,8 +1441,7 @@ def normalize_feed_asset_url(candidate: Any, source_url: str) -> str | None:
         return None
 
     normalized = urljoin(source_url, trimmed)
-    parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or parsed.netloc == "":
+    if not is_public_http_url(normalized, require_dns_resolution=False):
         return None
 
     return normalized

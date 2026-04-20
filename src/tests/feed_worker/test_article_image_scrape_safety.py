@@ -57,6 +57,20 @@ class ArticleImageScrapeSafetyTests(unittest.TestCase):
 
         self.assertIsNone(extract_meta_image_url(html, ARTICLE_URL))
 
+    def test_extract_meta_image_url_rejects_private_network_literals(self) -> None:
+        """Private-network literal hosts should not be accepted as meta image URLs."""
+
+        html = """
+        <html>
+          <head>
+            <meta property=\"og:image\" content=\"http://127.0.0.1/internal.png\" />
+            <meta name=\"twitter:image\" content=\"https://10.0.0.3/internal.png\" />
+          </head>
+        </html>
+        """
+
+        self.assertIsNone(extract_meta_image_url(html, ARTICLE_URL))
+
     def test_parse_retry_after_seconds_from_numeric_value(self) -> None:
         """Retry-After delay-seconds values should parse as float seconds."""
 

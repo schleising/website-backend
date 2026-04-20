@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
+
+from .url_safety import is_public_http_url
 
 
 def _iter_media_items(value: Any) -> list[dict[str, Any]]:
@@ -38,12 +40,7 @@ def _normalize_image_url(candidate: Any, source_url: str) -> str | None:
         return None
 
     absolute_url = urljoin(source_url, raw_value)
-    parsed = urlparse(absolute_url)
-
-    if parsed.scheme.lower() not in {"http", "https"}:
-        return None
-
-    if parsed.netloc.strip() == "":
+    if not is_public_http_url(absolute_url, require_dns_resolution=False):
         return None
 
     return absolute_url
