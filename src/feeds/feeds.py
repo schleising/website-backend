@@ -934,8 +934,6 @@ class Feeds:
                 ),
                 "$setOnInsert": {
                     "created_at": now,
-                    "is_deleted": False,
-                    "deleted_at": None,
                 },
             },
             upsert=True,

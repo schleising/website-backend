@@ -167,7 +167,7 @@ def ensure_backend_indexes() -> None:
             [("feed_id", ASCENDING), ("canonical_url", ASCENDING)],
             unique=True,
             partial_filter_expression={
-                "canonical_url": {"$type": "string", "$ne": ""},
+                "canonical_url": {"$type": "string"},
             },
         )
         _ensure_index(
@@ -175,7 +175,7 @@ def ensure_backend_indexes() -> None:
             [("feed_id", ASCENDING), ("external_id", ASCENDING)],
             unique=True,
             partial_filter_expression={
-                "external_id": {"$type": "string", "$ne": ""},
+                "external_id": {"$type": "string"},
             },
         )
         _ensure_index(
