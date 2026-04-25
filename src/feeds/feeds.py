@@ -16,7 +16,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 import feedparser
 from bson import ObjectId
-from pymongo.errors import AutoReconnect, NetworkTimeout, ServerSelectionTimeoutError
+from pymongo.errors import AutoReconnect, DuplicateKeyError, NetworkTimeout, ServerSelectionTimeoutError
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -989,19 +989,63 @@ class Feeds:
             deleted_at=None,
         )
 
-        upsert_result = FEED_ARTICLES_COLLECTION.update_one(
-            article_query,
-            {
-                "$set": article_document.model_dump(
-                    by_alias=True,
-                    exclude={"id"},
-                ),
-                "$setOnInsert": {
-                    "created_at": now,
-                },
+        update_payload = {
+            "$set": article_document.model_dump(
+                by_alias=True,
+                exclude={"id"},
+            ),
+            "$setOnInsert": {
+                "created_at": now,
             },
-            upsert=True,
-        )
+        }
+
+        try:
+            upsert_result = FEED_ARTICLES_COLLECTION.update_one(
+                article_query,
+                update_payload,
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            # When identity fields drift (or concurrent writes race), a different
+            # unique key path may already own this article. Retry against the
+            # strongest direct identities to make refresh idempotent.
+            fallback_clauses: list[dict[str, Any]] = []
+            if parsed_entry.external_id is not None:
+                fallback_clauses.append(
+                    {
+                        "feed_id": feed_id,
+                        "external_id": parsed_entry.external_id,
+                    }
+                )
+            if parsed_entry.canonical_url is not None:
+                fallback_clauses.append(
+                    {
+                        "feed_id": feed_id,
+                        "canonical_url": parsed_entry.canonical_url,
+                    }
+                )
+                fallback_clauses.append(
+                    {
+                        "feed_id": feed_id,
+                        "link": parsed_entry.canonical_url,
+                    }
+                )
+
+            if len(fallback_clauses) == 0:
+                raise
+
+            FEED_ARTICLES_COLLECTION.update_one(
+                {"$or": fallback_clauses},
+                update_payload,
+                upsert=False,
+            )
+
+            # Mimic update_one result shape for downstream insert-detection logic.
+            upsert_result = FEED_ARTICLES_COLLECTION.update_one(
+                article_query,
+                update_payload,
+                upsert=False,
+            )
 
         should_enqueue_deferred_scrape = (
             existing_doc is None and media_image_url is None
@@ -1407,12 +1451,19 @@ def build_article_identity_query(feed_id: ObjectId, parsed_entry: ParsedEntry) -
     """Return the best-available identity query for article upsert matching."""
 
     if parsed_entry.canonical_url is not None:
+        identity_clauses: list[dict[str, Any]] = [
+            {"canonical_url": parsed_entry.canonical_url},
+            {"link": parsed_entry.canonical_url},
+        ]
+
+        if parsed_entry.external_id is not None:
+            identity_clauses.append({"external_id": parsed_entry.external_id})
+        else:
+            identity_clauses.append({"dedupe_key": parsed_entry.dedupe_key})
+
         return {
             "feed_id": feed_id,
-            "$or": [
-                {"canonical_url": parsed_entry.canonical_url},
-                {"link": parsed_entry.canonical_url},
-            ],
+            "$or": identity_clauses,
         }
 
     if parsed_entry.external_id is not None:
