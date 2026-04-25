@@ -823,9 +823,14 @@ class Feeds:
             refresh_interval,
         )
 
-        feed_title = str(parsed_feed.get("title", "")).strip()
-        if feed_title == "":
-            feed_title = str(source_doc.get("title", effective_source_url)).strip() or effective_source_url
+        fallback_source_title = (
+            str(source_doc.get("title", effective_source_url)).strip() or effective_source_url
+        )
+        feed_title = resolve_source_feed_title(
+            parsed_feed,
+            effective_source_url,
+            fallback_source_title,
+        )
 
         feed_image_url = extract_feed_image_url(parsed_feed, effective_source_url)
         if feed_image_url is None:
@@ -1437,6 +1442,55 @@ def parse_feed_ttl_interval(feed_data: Any) -> timedelta | None:
         MAX_REFRESH_INTERVAL,
         timedelta(seconds=cadence_seconds),
     )
+
+
+def _coerce_feed_text(value: Any) -> str:
+    """Return normalized feed-level text, or empty string when unavailable."""
+
+    if not isinstance(value, str):
+        return ""
+
+    return value.strip()
+
+
+def is_bbc_feed_source_url(source_url: str) -> bool:
+    """Return True when the source URL points to BBC's feed host."""
+
+    hostname = (urlparse(str(source_url).strip()).hostname or "").strip().lower()
+    return hostname == "feeds.bbci.co.uk"
+
+
+def resolve_source_feed_title(
+    feed_data: Any,
+    source_url: str,
+    fallback_title: str,
+) -> str:
+    """Resolve persisted feed source title, preferring BBC description text."""
+
+    title_value = ""
+    description_value = ""
+
+    if hasattr(feed_data, "get"):
+        title_value = _coerce_feed_text(feed_data.get("title"))
+
+        for description_key in ("description", "subtitle", "summary"):
+            candidate_value = _coerce_feed_text(feed_data.get(description_key))
+            if candidate_value != "":
+                description_value = candidate_value
+                break
+
+    fallback_value = _coerce_feed_text(fallback_title)
+
+    if is_bbc_feed_source_url(source_url) and description_value != "":
+        return description_value
+
+    if title_value != "":
+        return title_value
+
+    if description_value != "":
+        return description_value
+
+    return fallback_value
 
 
 def normalize_article_identity_url(candidate: Any, source_url: str) -> str | None:
