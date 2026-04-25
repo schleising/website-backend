@@ -964,14 +964,34 @@ class Feeds:
             return None
 
         now = datetime.now(timezone.utc)
-        article_query = build_article_identity_query(feed_id, parsed_entry)
-        existing_doc = FEED_ARTICLES_COLLECTION.find_one(
-            article_query,
+        dedupe_owner_doc = FEED_ARTICLES_COLLECTION.find_one(
+            {
+                "feed_id": feed_id,
+                "dedupe_key": parsed_entry.dedupe_key,
+            },
             {
                 "_id": 1,
                 "media_image_url": 1,
             },
         )
+
+        if isinstance(dedupe_owner_doc, dict) and isinstance(
+            dedupe_owner_doc.get("_id"),
+            ObjectId,
+        ):
+            article_query: dict[str, Any] = {
+                "_id": dedupe_owner_doc["_id"],
+            }
+            existing_doc = dedupe_owner_doc
+        else:
+            article_query = build_article_identity_query(feed_id, parsed_entry)
+            existing_doc = FEED_ARTICLES_COLLECTION.find_one(
+                article_query,
+                {
+                    "_id": 1,
+                    "media_image_url": 1,
+                },
+            )
 
         existing_media_image_url: str | None = None
         if isinstance(existing_doc, dict):
@@ -1009,53 +1029,73 @@ class Feeds:
             },
         }
 
+        resolved_article_id: ObjectId | None = None
+        upserted_article_id: ObjectId | None = None
+
         try:
             upsert_result = FEED_ARTICLES_COLLECTION.update_one(
                 article_query,
                 update_payload,
                 upsert=True,
             )
+            possible_upserted_id = upsert_result.upserted_id
+            if isinstance(possible_upserted_id, ObjectId):
+                upserted_article_id = possible_upserted_id
         except DuplicateKeyError:
-            # When identity fields drift (or concurrent writes race), a different
-            # unique key path may already own this article. Retry against the
-            # strongest direct identities to make refresh idempotent.
-            fallback_clauses: list[dict[str, Any]] = []
-            if parsed_entry.external_id is not None:
-                fallback_clauses.append(
-                    {
-                        "feed_id": feed_id,
-                        "external_id": parsed_entry.external_id,
-                    }
-                )
-            if parsed_entry.canonical_url is not None:
-                fallback_clauses.append(
-                    {
-                        "feed_id": feed_id,
-                        "canonical_url": parsed_entry.canonical_url,
-                    }
-                )
-                fallback_clauses.append(
-                    {
-                        "feed_id": feed_id,
-                        "link": parsed_entry.canonical_url,
-                    }
-                )
-
-            if len(fallback_clauses) == 0:
-                raise
-
-            FEED_ARTICLES_COLLECTION.update_one(
-                {"$or": fallback_clauses},
+            # Legacy rows may share link/canonical identities while differing in
+            # dedupe_key. Resolve conflicts by targeting the dedupe-key owner
+            # directly, then optionally try weaker identity fallbacks.
+            dedupe_owner_query = {
+                "feed_id": feed_id,
+                "dedupe_key": parsed_entry.dedupe_key,
+            }
+            dedupe_owner_result = FEED_ARTICLES_COLLECTION.update_one(
+                dedupe_owner_query,
                 update_payload,
                 upsert=False,
             )
 
-            # Mimic update_one result shape for downstream insert-detection logic.
-            upsert_result = FEED_ARTICLES_COLLECTION.update_one(
-                article_query,
-                update_payload,
-                upsert=False,
+            if dedupe_owner_result.matched_count == 0:
+                fallback_clauses: list[dict[str, Any]] = []
+                if parsed_entry.external_id is not None:
+                    fallback_clauses.append(
+                        {
+                            "feed_id": feed_id,
+                            "external_id": parsed_entry.external_id,
+                        }
+                    )
+                if parsed_entry.canonical_url is not None:
+                    fallback_clauses.append(
+                        {
+                            "feed_id": feed_id,
+                            "canonical_url": parsed_entry.canonical_url,
+                        }
+                    )
+                    fallback_clauses.append(
+                        {
+                            "feed_id": feed_id,
+                            "link": parsed_entry.canonical_url,
+                        }
+                    )
+
+                if len(fallback_clauses) > 0:
+                    FEED_ARTICLES_COLLECTION.update_one(
+                        {"$or": fallback_clauses},
+                        update_payload,
+                        upsert=False,
+                    )
+
+            dedupe_owner = FEED_ARTICLES_COLLECTION.find_one(
+                {
+                    "feed_id": feed_id,
+                    "dedupe_key": parsed_entry.dedupe_key,
+                },
+                {"_id": 1},
             )
+            if isinstance(dedupe_owner, dict):
+                possible_article_id = dedupe_owner.get("_id")
+                if isinstance(possible_article_id, ObjectId):
+                    resolved_article_id = possible_article_id
 
         should_enqueue_deferred_scrape = (
             existing_doc is None and media_image_url is None
@@ -1063,11 +1103,26 @@ class Feeds:
         if not should_enqueue_deferred_scrape:
             return None
 
-        article_id = upsert_result.upserted_id
+        article_id = upserted_article_id
+        if not isinstance(article_id, ObjectId) and isinstance(resolved_article_id, ObjectId):
+            article_id = resolved_article_id
         if not isinstance(article_id, ObjectId):
             inserted_doc = FEED_ARTICLES_COLLECTION.find_one(article_query, {"_id": 1})
             if isinstance(inserted_doc, dict):
                 possible_article_id = inserted_doc.get("_id")
+                if isinstance(possible_article_id, ObjectId):
+                    article_id = possible_article_id
+
+        if not isinstance(article_id, ObjectId):
+            dedupe_doc = FEED_ARTICLES_COLLECTION.find_one(
+                {
+                    "feed_id": feed_id,
+                    "dedupe_key": parsed_entry.dedupe_key,
+                },
+                {"_id": 1},
+            )
+            if isinstance(dedupe_doc, dict):
+                possible_article_id = dedupe_doc.get("_id")
                 if isinstance(possible_article_id, ObjectId):
                     article_id = possible_article_id
 
