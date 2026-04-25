@@ -898,6 +898,16 @@ class Feeds:
             },
         )
 
+        source_title = str(source_doc.get("title", source_doc.get("normalized_url", "Feed"))).strip() or "Feed"
+        source_url = str(source_doc.get("normalized_url", "")).strip()
+        logging.error(
+            "Feed refresh failed | source_id=%s | title=%s | url=%s | reason=%s",
+            source_id,
+            source_title,
+            source_url,
+            reason,
+        )
+
     def _parse_feed_entry(self, source_url: str, entry: dict[str, Any]) -> ParsedEntry | None:
         """Normalize one feedparser entry into a stable write model."""
 
