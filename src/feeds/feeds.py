@@ -137,6 +137,10 @@ ARTICLE_IMAGE_RESULT_CACHE_MAX_ENTRIES = _read_env_positive_int(
 MAX_SUMMARY_LENGTH = 60_000
 FAILURE_MODE = os.getenv("FEEDS_FAILURE_MODE", "none").strip().lower()
 HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]*>")
+SUMMARY_ANCHOR_HREF_RE = re.compile(
+    r"(<a\b[^>]*\bhref\s*=\s*)(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
+    re.IGNORECASE,
+)
 META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
 META_ATTR_RE = re.compile(
     r"\b([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
@@ -924,7 +928,10 @@ class Feeds:
         if title == "":
             title = canonical_url or link or "Untitled"
 
-        summary_html = select_entry_summary_html(entry)
+        summary_html = normalize_summary_document_fragment_links(
+            select_entry_summary_html(entry),
+            [link, canonical_url],
+        )
 
         media_image_url = extract_largest_media_image_url(entry, source_url)
         if media_image_url is None:
@@ -1363,6 +1370,102 @@ def select_entry_summary_html(entry: dict[str, Any]) -> str | None:
             plain_candidate = summary_value
 
     return plain_candidate
+
+
+def normalize_summary_document_fragment_links(
+    summary_html: str | None,
+    article_urls: list[str | None],
+) -> str | None:
+    """Collapse same-document absolute fragment links back to local anchors."""
+
+    if not isinstance(summary_html, str) or summary_html.strip() == "":
+        return summary_html
+
+    normalized_article_urls: list[str] = []
+    for candidate in article_urls:
+        normalized_candidate = normalize_article_identity_url(candidate, candidate or "")
+        if normalized_candidate is None or normalized_candidate in normalized_article_urls:
+            continue
+        normalized_article_urls.append(normalized_candidate)
+
+    if not normalized_article_urls:
+        return summary_html
+
+    comparison_base_url = normalized_article_urls[0]
+
+    def _normalize_fragment_parent_url(candidate_url: str) -> str | None:
+        normalized_candidate = normalize_article_identity_url(candidate_url, comparison_base_url)
+        if normalized_candidate is None:
+            return None
+
+        parsed_candidate = urlparse(normalized_candidate)
+        scheme = parsed_candidate.scheme.lower()
+        hostname = (parsed_candidate.hostname or "").strip().lower()
+        if hostname == "":
+            return None
+
+        try:
+            port = parsed_candidate.port
+        except ValueError:
+            return None
+
+        if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+            netloc = hostname
+        else:
+            netloc = f"{hostname}:{port}"
+
+        path = parsed_candidate.path or "/"
+        if path != "/":
+            path = path.rstrip("/") or "/"
+
+        # For same-document footnote links, query parameters are irrelevant.
+        return urlunparse((scheme, netloc, path, "", "", ""))
+
+    normalized_article_parents = {
+        normalized_parent
+        for article_url in normalized_article_urls
+        for normalized_parent in [_normalize_fragment_parent_url(article_url)]
+        if normalized_parent is not None
+    }
+
+    if not normalized_article_parents:
+        return summary_html
+
+    def _replace_anchor_href(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        double_quoted_value = match.group(2)
+        single_quoted_value = match.group(3)
+        unquoted_value = match.group(4)
+
+        if double_quoted_value is not None:
+            raw_href = double_quoted_value
+            quote = '"'
+        elif single_quoted_value is not None:
+            raw_href = single_quoted_value
+            quote = "'"
+        else:
+            raw_href = unquoted_value or ""
+            quote = ""
+
+        decoded_href = unescape(raw_href).strip()
+        if decoded_href == "" or decoded_href.startswith("#"):
+            return match.group(0)
+
+        parsed_href = urlparse(decoded_href)
+        if parsed_href.fragment == "":
+            return match.group(0)
+
+        normalized_href_parent = _normalize_fragment_parent_url(decoded_href)
+        if normalized_href_parent not in normalized_article_parents:
+            return match.group(0)
+
+        fragment_href = f"#{parsed_href.fragment}"
+        if quote == "":
+            return f"{prefix}{fragment_href}"
+
+        return f"{prefix}{quote}{fragment_href}{quote}"
+
+    return SUMMARY_ANCHOR_HREF_RE.sub(_replace_anchor_href, summary_html)
 
 
 def coerce_positive_int(value: Any) -> int | None:
