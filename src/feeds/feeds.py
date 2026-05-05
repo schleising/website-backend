@@ -141,6 +141,10 @@ SUMMARY_ANCHOR_HREF_RE = re.compile(
     r"(<a\b[^>]*\bhref\s*=\s*)(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
     re.IGNORECASE,
 )
+SUMMARY_ELEMENT_ID_RE = re.compile(
+    r"\bid\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s\"'=<>`]+))",
+    re.IGNORECASE,
+)
 META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
 META_ATTR_RE = re.compile(
     r"\b([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
@@ -1431,6 +1435,29 @@ def normalize_summary_document_fragment_links(
     if not normalized_article_parents:
         return summary_html
 
+    article_hosts = {
+        parsed_parent.hostname
+        for parent in normalized_article_parents
+        for parsed_parent in [urlparse(parent)]
+        if parsed_parent.hostname is not None
+    }
+
+    summary_local_ids = {
+        unescape(
+            next(
+                value
+                for value in (
+                    id_match.group(1),
+                    id_match.group(2),
+                    id_match.group(3),
+                )
+                if value is not None
+            )
+        ).strip()
+        for id_match in SUMMARY_ELEMENT_ID_RE.finditer(summary_html)
+    }
+    summary_local_ids.discard("")
+
     def _replace_anchor_href(match: re.Match[str]) -> str:
         prefix = match.group(1)
         double_quoted_value = match.group(2)
@@ -1456,7 +1483,25 @@ def normalize_summary_document_fragment_links(
             return match.group(0)
 
         normalized_href_parent = _normalize_fragment_parent_url(decoded_href)
-        if normalized_href_parent not in normalized_article_parents:
+        should_collapse = normalized_href_parent in normalized_article_parents
+
+        if (
+            not should_collapse
+            and normalized_href_parent is not None
+            and len(summary_local_ids) > 0
+        ):
+            parsed_href_parent = urlparse(normalized_href_parent)
+            href_host = parsed_href_parent.hostname
+            href_path = parsed_href_parent.path or "/"
+            if (
+                href_host is not None
+                and href_host in article_hosts
+                and href_path == "/"
+                and unescape(parsed_href.fragment).strip() in summary_local_ids
+            ):
+                should_collapse = True
+
+        if not should_collapse:
             return match.group(0)
 
         fragment_href = f"#{parsed_href.fragment}"
