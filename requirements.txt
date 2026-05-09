@@ -7,7 +7,7 @@ bcrypt==5.0.0
 certifi==2026.4.22
 cffi==2.0.0
 charset-normalizer==3.4.7
-cryptography==47.0.0
+cryptography==48.0.0
 dnspython==2.8.0
 feedparser==6.0.12
 frozenlist==1.8.0
@@ -15,11 +15,11 @@ http_ece==1.2.1
 idna==3.13
 multidict==6.7.1
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
-propcache==0.4.1
+propcache==0.5.2
 py-vapid==1.9.4
 pycparser==3.0
-pydantic==2.13.3
-pydantic_core==2.46.3
+pydantic==2.13.4
+pydantic_core==2.46.4
 pymongo==4.17.0
 PyQRCode==1.2.1
 pywebpush==2.3.0
@@ -28,5 +28,5 @@ sgmllib3k==1.0.0
 six==1.17.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-urllib3==2.6.3
+urllib3==2.7.0
 yarl==1.23.0
