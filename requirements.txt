@@ -12,7 +12,7 @@ dnspython==2.8.0
 feedparser==6.0.12
 frozenlist==1.8.0
 http_ece==1.2.1
-idna==3.13
+idna==3.15
 multidict==6.7.1
 notify-run @ git+https://github.com/notify-run/notify.run.git@0b37558d54fda52d382a72cef05c05856c605c7b#subdirectory=py_client
 propcache==0.5.2
