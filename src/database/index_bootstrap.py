@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any
 
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, TEXT
 from pymongo.collection import Collection
 from pymongo.errors import OperationFailure
 
@@ -83,6 +83,69 @@ def _ensure_index(
         if ex.code in (85, 86):
             logging.warning(
                 f"Skipping create_index for {collection.full_name} on {keys}: {ex}"
+            )
+            return
+
+        raise
+
+
+def _index_has_text_keys(index_meta: dict[str, Any]) -> bool:
+    """Return True when an index metadata payload represents a text index."""
+
+    existing_keys = index_meta.get("key")
+    if not isinstance(existing_keys, list):
+        return False
+
+    for key_pair in existing_keys:
+        if not isinstance(key_pair, (list, tuple)) or len(key_pair) != 2:
+            continue
+        if str(key_pair[1]).lower() == "text":
+            return True
+
+    return False
+
+
+def _ensure_text_index(
+    collection: Collection,
+    keys: list[tuple[str, str]],
+    *,
+    default_language: str = "english",
+    weights: dict[str, int] | None = None,
+) -> None:
+    """Ensure a text index exists, reusing compatible existing definitions."""
+
+    existing_indexes = collection.index_information()
+
+    for index_meta in existing_indexes.values():
+        if index_meta.get("key") == keys:
+            return
+
+    for index_name, index_meta in existing_indexes.items():
+        if not _index_has_text_keys(index_meta):
+            continue
+
+        logging.info(
+            "Text index already exists on %s as %s; requested text index ensure skipped",
+            collection.full_name,
+            index_name,
+        )
+        return
+
+    try:
+        create_kwargs: dict[str, Any] = {
+            "default_language": default_language,
+        }
+        if isinstance(weights, dict) and len(weights) > 0:
+            create_kwargs["weights"] = weights
+
+        collection.create_index(keys, **create_kwargs)
+    except OperationFailure as ex:
+        if ex.code in (85, 86):
+            logging.warning(
+                "Skipping create_index for %s on %s: %s",
+                collection.full_name,
+                keys,
+                ex,
             )
             return
 
@@ -186,6 +249,12 @@ def ensure_backend_indexes() -> None:
         _ensure_index(feed_articles, [("feed_id", ASCENDING), ("published_at", ASCENDING)])
         _ensure_index(feed_articles, [("is_deleted", ASCENDING), ("deleted_at", ASCENDING)])
         _ensure_index(feed_articles, [("_id", ASCENDING), ("feed_id", ASCENDING)])
+        _ensure_text_index(
+            feed_articles,
+            [("title", TEXT), ("summary_html", TEXT)],
+            default_language="english",
+            weights={"title": 8, "summary_html": 2},
+        )
 
     user_feed_subscriptions = database.get_collection("user_feed_subscriptions")
     if user_feed_subscriptions is not None:
