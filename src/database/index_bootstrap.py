@@ -11,6 +11,8 @@ from .database import BackendDatabase
 
 SEASON_MATCH_PATTERN = re.compile(r"^pl_matches_\d{4}_\d{4}$")
 SEASON_TABLE_PATTERN = re.compile(r"^pl_table_\d{4}_\d{4}$")
+WC_MATCH_PATTERN = re.compile(r"^wc_matches_\d{4}$")
+WC_STANDINGS_PATTERN = re.compile(r"^wc_standings_\d{4}$")
 
 
 def _index_matches(
@@ -194,6 +196,30 @@ def ensure_backend_indexes() -> None:
 
                 _ensure_index(season_table, [("team.id", ASCENDING)], unique=True)
                 _ensure_index(season_table, [("position", ASCENDING)])
+
+            if WC_MATCH_PATTERN.match(collection_name):
+                wc_matches = database.get_collection(collection_name)
+                if wc_matches is None:
+                    continue
+
+                _ensure_index(wc_matches, [("id", ASCENDING)], unique=True)
+                _ensure_index(wc_matches, [("utc_date", ASCENDING)])
+                _ensure_index(wc_matches, [("stage", ASCENDING), ("group", ASCENDING)])
+                _ensure_index(
+                    wc_matches,
+                    [("group", ASCENDING), ("matchday", ASCENDING), ("utc_date", ASCENDING)],
+                )
+
+            if WC_STANDINGS_PATTERN.match(collection_name):
+                wc_standings = database.get_collection(collection_name)
+                if wc_standings is None:
+                    continue
+
+                _ensure_index(
+                    wc_standings,
+                    [("edition", ASCENDING), ("group_slug", ASCENDING)],
+                    unique=True,
+                )
 
     live_pl_table = database.get_collection("live_pl_table")
     if live_pl_table is not None:

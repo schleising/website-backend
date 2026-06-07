@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ShortName(str, Enum):
@@ -158,12 +158,17 @@ class MatchStatus(str, Enum):
 class Filters(BaseModel):
     season: str
 
+    @field_validator("season", mode="before")
+    @classmethod
+    def _coerce_season(cls, value) -> str:
+        return str(value)
+
 
 class Area(BaseModel):
     id: int
     name: str
     code: str
-    flag: str
+    flag: str | None = None
 
 
 class Competition(BaseModel):
@@ -175,14 +180,29 @@ class Competition(BaseModel):
 
 
 class Team(BaseModel):
-    id: int
-    name: str
-    short_name: ShortName = Field(..., alias="shortName")
-    tla: str
-    crest: str
+    id: int | None = None
+    name: str | None = None
+    short_name: ShortName | str | None = Field(default=None, alias="shortName")
+    tla: str | None = None
+    crest: str | None = None
 
     class Config:
         populate_by_name = True
+
+    @field_validator("short_name", mode="before")
+    @classmethod
+    def _coerce_short_name(cls, value) -> ShortName | str | None:
+        if value is None:
+            return None
+
+        if isinstance(value, ShortName):
+            return value
+
+        candidate = str(value)
+        try:
+            return ShortName(candidate)
+        except ValueError:
+            return candidate
 
     @property
     def local_crest(self) -> str:
@@ -217,7 +237,7 @@ class TableItem(BaseModel):
     position: int
     team: Team
     played_games: int = Field(..., alias="playedGames")
-    form: str
+    form: str | None = None
     won: int
     draw: int
     lost: int
@@ -307,7 +327,7 @@ class Match(BaseModel):
     status: MatchStatus
     minute: int | None = None
     injury_time: int | None = Field(default=None, alias="injuryTime")
-    matchday: int
+    matchday: int | None = None
     stage: str
     group: str | None = None
     last_updated: datetime = Field(..., alias="lastUpdated")
