@@ -19,8 +19,20 @@ def get_request(url: str, session: Session) -> Response | None:
 
         if response.status_code == status_codes.codes.ok:
             return response
+
+        if response.status_code == status_codes.codes.too_many_requests:
+            retry_after = response.headers.get("Retry-After", "unknown")
+            logging.error(
+                "Request to %s rate limited (429). Retry-After: %s",
+                url,
+                retry_after,
+            )
         else:
-            logging.error(f"Request to {url} failed with status code {response.status_code}.")
+            logging.error(
+                "Request to %s failed with status code %s.",
+                url,
+                response.status_code,
+            )
     except Timeout:
         logging.error(f"Request to {url} timed out.")
     except ConnectionError:

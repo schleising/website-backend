@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import requests
 from pydantic import BaseModel, Field, ValidationError
 from pymongo.operations import UpdateOne
 
@@ -26,7 +27,9 @@ WC_TOURNAMENT_START = datetime(2026, 6, 11, tzinfo=timezone.utc)
 WC_TOURNAMENT_END = datetime(2026, 7, 19, 23, 59, 59, tzinfo=timezone.utc)
 WC_GROUP_STAGE = "GROUP_STAGE"
 WC_UPDATE_DELTA = timedelta(seconds=4)
+WC_STANDINGS_SYNC_INTERVAL = timedelta(minutes=5)
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
+WC_CREST_ALLOWED_HOSTS = frozenset({"crests.football-data.org"})
 
 
 class CompetitionTeamsResponse(BaseModel):
@@ -37,6 +40,7 @@ class WorldCup:
     def __init__(self, scheduler: TaskScheduler) -> None:
         self.scheduler = scheduler
         self.edition = WC_EDITION
+        self._last_standings_sync: datetime | None = None
 
         current_date_utc = datetime.now(timezone.utc).date()
         next_sync_time = datetime(
@@ -139,6 +143,7 @@ class WorldCup:
             return
 
         wc_standings_collection.bulk_write(operations)
+        self._last_standings_sync = datetime.now(timezone.utc)
         logging.debug("Wrote %s World Cup group standings", len(operations))
 
     def sync_teams_and_crests(self) -> None:
@@ -172,6 +177,14 @@ class WorldCup:
             return
 
         parsed = urlparse(crest_url)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in WC_CREST_ALLOWED_HOSTS:
+            logging.warning(
+                "Rejected World Cup crest URL for team %s: %s",
+                team.id,
+                crest_url,
+            )
+            return
+
         suffix = Path(parsed.path).suffix.lower() or ".png"
         if suffix not in {".png", ".svg"}:
             suffix = ".png"
@@ -181,7 +194,7 @@ class WorldCup:
             return
 
         try:
-            crest_response = requests_session.get(crest_url, timeout=20)
+            crest_response = requests.get(crest_url, timeout=20)
             crest_response.raise_for_status()
             destination.write_bytes(crest_response.content)
             logging.debug("Saved World Cup crest for team %s", team.id)
@@ -280,9 +293,20 @@ class WorldCup:
         self._write_matches(matches.matches)
 
         if any(match.stage == WC_GROUP_STAGE for match in matches.matches):
-            self.sync_standings()
+            self._sync_standings_if_due()
 
         self.schedule_live_updates(matches.matches)
+
+    def _sync_standings_if_due(self) -> None:
+        now = datetime.now(timezone.utc)
+        if (
+            self._last_standings_sync is not None
+            and now - self._last_standings_sync < WC_STANDINGS_SYNC_INTERVAL
+        ):
+            return
+
+        self.sync_standings()
+        self._last_standings_sync = now
 
     def _schedule_next_tournament_poll(self, now: datetime) -> None:
         if now.date() < WC_TOURNAMENT_START.date():
