@@ -20,6 +20,8 @@ WC_EDITION = "2026"
 WC_API_BASE = "https://api.football-data.org/v4/competitions/WC"
 WC_TOURNAMENT_START = datetime(2026, 6, 11, tzinfo=timezone.utc)
 WC_TOURNAMENT_END = datetime(2026, 7, 19, 23, 59, 59, tzinfo=timezone.utc)
+WC_GROUP_STAGE = "GROUP_STAGE"
+WC_UPDATE_DELTA = timedelta(seconds=4)
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
 
 
@@ -50,6 +52,7 @@ class WorldCup:
         )
 
         self.sync_tournament()
+        self.get_todays_matches()
 
     def sync_tournament(self) -> None:
         self.sync_matches()
@@ -208,3 +211,115 @@ class WorldCup:
 
         wc_match_collection.bulk_write(operations)
         logging.debug("Wrote %s World Cup matches", len(operations))
+
+    def get_todays_matches(self) -> None:
+        now = datetime.now(timezone.utc)
+        today = now.date()
+
+        if today < WC_TOURNAMENT_START.date() or today > WC_TOURNAMENT_END.date():
+            self._schedule_next_tournament_poll(now)
+            return
+
+        response = get_request(
+            (
+                f"{WC_API_BASE}/matches"
+                f"?dateFrom={today}&dateTo={today}&season={self.edition}"
+            ),
+            requests_session,
+        )
+
+        if response is None:
+            logging.error("Failed to download today's World Cup matches")
+            self.schedule_live_updates(None)
+            return
+
+        try:
+            matches = Matches.model_validate_json(response.content)
+        except ValidationError as error:
+            logging.error("Failed to parse today's World Cup matches: %s", error)
+            self.schedule_live_updates(None)
+            return
+
+        self._normalise_match_times(matches.matches)
+        self._write_matches(matches.matches)
+
+        if any(match.stage == WC_GROUP_STAGE for match in matches.matches):
+            self.sync_standings()
+
+        self.schedule_live_updates(matches.matches)
+
+    def _schedule_next_tournament_poll(self, now: datetime) -> None:
+        if now.date() < WC_TOURNAMENT_START.date():
+            next_poll = WC_TOURNAMENT_START
+        else:
+            next_day = now.date() + timedelta(days=1)
+            next_poll = datetime(
+                next_day.year,
+                next_day.month,
+                next_day.day,
+                tzinfo=timezone.utc,
+            )
+
+        logging.debug("Next World Cup live poll scheduled for %s", next_poll)
+        self.scheduler.schedule_task(next_poll, self.get_todays_matches)
+
+    def schedule_live_updates(self, matches: list[Match] | None) -> None:
+        if matches is not None:
+            if any(
+                match.status
+                in [
+                    MatchStatus.in_play,
+                    MatchStatus.paused,
+                    MatchStatus.suspended,
+                ]
+                for match in matches
+            ):
+                logging.debug("At least one World Cup match is in play")
+                self.scheduler.schedule_task(
+                    datetime.now(timezone.utc) + WC_UPDATE_DELTA,
+                    self.get_todays_matches,
+                )
+                return
+
+            if any(
+                match.status
+                in [
+                    MatchStatus.awarded,
+                    MatchStatus.scheduled,
+                    MatchStatus.timed,
+                ]
+                for match in matches
+            ):
+                todays_matches = [
+                    match
+                    for match in matches
+                    if match.status
+                    not in [MatchStatus.postponed, MatchStatus.cancelled]
+                ]
+
+                if len(todays_matches) == 0:
+                    logging.debug("No more World Cup matches today")
+                    return
+
+                next_match_utc = min(
+                    match.utc_date
+                    for match in todays_matches
+                    if match.utc_date
+                    > datetime.now(timezone.utc) - timedelta(minutes=100)
+                )
+
+                if next_match_utc < datetime.now(timezone.utc):
+                    next_match_utc = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+
+                logging.debug("Next World Cup match time %s", next_match_utc)
+                self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+                return
+
+            logging.debug("No more World Cup matches today")
+            return
+
+        logging.error("Rescheduling World Cup match update due to error")
+        self.scheduler.schedule_task(
+            datetime.now(timezone.utc) + WC_UPDATE_DELTA,
+            self.get_todays_matches,
+        )
