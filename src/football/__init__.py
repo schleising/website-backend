@@ -16,6 +16,7 @@ pl_table_collection = mongo_db.get_collection('pl_table_2025_2026')
 live_pl_table_collection = mongo_db.get_collection('live_pl_table')
 wc_match_collection = mongo_db.get_collection('wc_matches_2026')
 wc_standings_collection = mongo_db.get_collection('wc_standings_2026')
+live_wc_standings_collection = mongo_db.get_collection('live_wc_standings_2026')
 football_push = mongo_db.get_collection('football_push_subscriptions')
 
 # Try to read the api key from the secret file

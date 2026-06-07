@@ -14,8 +14,14 @@ from pymongo.operations import UpdateOne
 from task_scheduler import TaskScheduler
 from utils.network_utils import get_request
 
-from . import requests_session, wc_match_collection, wc_standings_collection
-from .models import Match, Matches, MatchStatus, Table, Team
+from . import (
+    live_wc_standings_collection,
+    requests_session,
+    wc_match_collection,
+    wc_standings_collection,
+)
+from .football import TableUpdate, TeamStatus
+from .models import Match, Matches, MatchStatus, Table, TableItem, Team
 from .push_notifications import (
     FOOTBALL_WEBAPP_ORIGIN,
     compare_match_states_and_notify,
@@ -27,7 +33,6 @@ WC_TOURNAMENT_START = datetime(2026, 6, 11, tzinfo=timezone.utc)
 WC_TOURNAMENT_END = datetime(2026, 7, 19, 23, 59, 59, tzinfo=timezone.utc)
 WC_GROUP_STAGE = "GROUP_STAGE"
 WC_UPDATE_DELTA = timedelta(seconds=4)
-WC_STANDINGS_SYNC_INTERVAL = timedelta(minutes=5)
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
 WC_CREST_ALLOWED_HOSTS = frozenset({"crests.football-data.org"})
 
@@ -40,7 +45,6 @@ class WorldCup:
     def __init__(self, scheduler: TaskScheduler) -> None:
         self.scheduler = scheduler
         self.edition = WC_EDITION
-        self._last_standings_sync: datetime | None = None
 
         current_date_utc = datetime.now(timezone.utc).date()
         next_sync_time = datetime(
@@ -55,17 +59,24 @@ class WorldCup:
 
         self.scheduler.schedule_task(
             next_sync_time,
-            self.sync_tournament,
+            self.sync_matches,
+            timedelta(days=1),
+        )
+        self.scheduler.schedule_task(
+            next_sync_time + timedelta(seconds=30),
+            self.sync_standings,
+            timedelta(days=1),
+        )
+        self.scheduler.schedule_task(
+            next_sync_time + timedelta(minutes=1),
+            self.get_todays_matches,
             timedelta(days=1),
         )
 
-        self.sync_tournament()
-        self.get_todays_matches()
-
-    def sync_tournament(self) -> None:
         self.sync_matches()
         self.sync_standings()
         self.sync_teams_and_crests()
+        self.get_todays_matches()
 
     def sync_matches(self) -> None:
         logging.debug("Getting World Cup matches")
@@ -96,8 +107,17 @@ class WorldCup:
     def sync_standings(self) -> None:
         logging.debug("Getting World Cup standings")
 
+        today = datetime.now(timezone.utc).date()
+        if today < WC_TOURNAMENT_START.date():
+            table_date = WC_TOURNAMENT_START.date()
+        else:
+            table_date = min(today, WC_TOURNAMENT_END.date())
+
         response = get_request(
-            f"{WC_API_BASE}/standings?season={self.edition}",
+            (
+                f"{WC_API_BASE}/standings"
+                f"?season={self.edition}&date={table_date}"
+            ),
             requests_session,
         )
 
@@ -143,7 +163,6 @@ class WorldCup:
             return
 
         wc_standings_collection.bulk_write(operations)
-        self._last_standings_sync = datetime.now(timezone.utc)
         logging.debug("Wrote %s World Cup group standings", len(operations))
 
     def sync_teams_and_crests(self) -> None:
@@ -278,6 +297,7 @@ class WorldCup:
 
         if response is None:
             logging.error("Failed to download today's World Cup matches")
+            self.update_live_standings(None)
             self.schedule_live_updates(None)
             return
 
@@ -285,28 +305,143 @@ class WorldCup:
             matches = Matches.model_validate_json(response.content)
         except ValidationError as error:
             logging.error("Failed to parse today's World Cup matches: %s", error)
+            self.update_live_standings(None)
             self.schedule_live_updates(None)
             return
 
         self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
-
-        if any(match.stage == WC_GROUP_STAGE for match in matches.matches):
-            self._sync_standings_if_due()
+        self.update_live_standings(matches.matches)
 
         self.schedule_live_updates(matches.matches)
 
-    def _sync_standings_if_due(self) -> None:
-        now = datetime.now(timezone.utc)
-        if (
-            self._last_standings_sync is not None
-            and now - self._last_standings_sync < WC_STANDINGS_SYNC_INTERVAL
-        ):
+    def update_live_standings(self, matches: list[Match] | None) -> None:
+        if wc_standings_collection is None or live_wc_standings_collection is None:
+            logging.error("No World Cup standings collections configured")
             return
 
-        self.sync_standings()
-        self._last_standings_sync = now
+        group_documents = list(
+            wc_standings_collection.find({"edition": self.edition})
+        )
+        if len(group_documents) == 0:
+            logging.debug("No World Cup group standings in DB to update live")
+            return
+
+        todays_group_matches: list[Match] = []
+        if matches is not None:
+            todays_group_matches = [
+                match
+                for match in matches
+                if match.stage == WC_GROUP_STAGE and match.group is not None
+            ]
+
+        operations: list[UpdateOne] = []
+
+        for document in group_documents:
+            group_enum = document.get("group_enum")
+            if not isinstance(group_enum, str):
+                continue
+
+            table_rows = [
+                TableItem.model_validate(row) for row in document.get("table", [])
+            ]
+            table_dict = {
+                table_item.team.display_name: table_item for table_item in table_rows
+            }
+
+            update_dict: dict[str, TableUpdate] = {}
+            for match in todays_group_matches:
+                if match.group != group_enum:
+                    continue
+
+                if (
+                    match.status.has_started
+                    and match.score.full_time.home is not None
+                    and match.score.full_time.away is not None
+                ):
+                    home_update = TableUpdate(
+                        match.status,
+                        match.score.full_time.home,
+                        match.score.full_time.away,
+                    )
+                    update_dict[match.home_team.display_name] = home_update
+
+                    away_update = TableUpdate(
+                        match.status,
+                        match.score.full_time.away,
+                        match.score.full_time.home,
+                    )
+                    update_dict[match.away_team.display_name] = away_update
+
+            for team_name, table_update in update_dict.items():
+                if team_name not in table_dict:
+                    continue
+
+                table_dict[team_name].played_games += table_update.played
+                table_dict[team_name].won += table_update.won
+                table_dict[team_name].draw += table_update.draw
+                table_dict[team_name].lost += table_update.lost
+                table_dict[team_name].points += table_update.points
+                table_dict[team_name].goals_for += table_update.goals_for
+                table_dict[team_name].goals_against += table_update.goals_against
+                table_dict[team_name].goal_difference += table_update.goal_difference
+
+            table_list = self._update_group_positions(list(table_dict.values()))
+            group_slug = document.get("group_slug")
+            if not isinstance(group_slug, str):
+                continue
+
+            live_document = {
+                "edition": self.edition,
+                "group_slug": group_slug,
+                "group_label": document.get("group_label"),
+                "group_enum": group_enum,
+                "stage": document.get("stage"),
+                "type": document.get("type"),
+                "table": [row.model_dump() for row in table_list],
+            }
+            operations.append(
+                UpdateOne(
+                    {"edition": self.edition, "group_slug": group_slug},
+                    {"$set": live_document},
+                    upsert=True,
+                )
+            )
+
+        if len(operations) == 0:
+            logging.debug("No World Cup live standings to write")
+            return
+
+        try:
+            live_wc_standings_collection.bulk_write(operations)
+        except Exception:
+            logging.error("Failed to write World Cup live standings to DB")
+        else:
+            logging.debug("Wrote %s World Cup live group standings", len(operations))
+
+    def _update_group_positions(
+        self, table_list: list[TableItem]
+    ) -> list[TableItem]:
+        table_list = sorted(
+            table_list, key=lambda table_item: table_item.team.display_name.casefold()
+        )
+        table_list = sorted(
+            table_list, key=lambda table_item: table_item.goals_for, reverse=True
+        )
+        table_list = sorted(
+            table_list,
+            key=lambda table_item: table_item.goal_difference,
+            reverse=True,
+        )
+        table_list = sorted(
+            table_list, key=lambda table_item: table_item.points, reverse=True
+        )
+
+        for position, table_item in enumerate(table_list, start=1):
+            table_item.position = position
+
+        return table_list
 
     def _schedule_next_tournament_poll(self, now: datetime) -> None:
         if now.date() < WC_TOURNAMENT_START.date():
