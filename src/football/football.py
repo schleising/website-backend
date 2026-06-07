@@ -7,19 +7,14 @@ import json
 
 from pydantic import BaseModel, ValidationError
 
-from requests import status_codes
-
 from pymongo import ASCENDING
 from pymongo.operations import UpdateOne
-
-from pywebpush import webpush, WebPushException
 
 from . import (
     requests_session,
     pl_match_collection,
     pl_table_collection,
     live_pl_table_collection,
-    football_push,
 )
 
 from .models import (
@@ -29,28 +24,19 @@ from .models import (
     Matches,
     Match,
     MatchStatus,
-    PushSubscriptionDocument,
 )
 
 from task_scheduler import TaskScheduler
 
 from utils.network_utils import get_request
 
+from .push_notifications import (
+    FOOTBALL_WEBAPP_ORIGIN,
+    compare_match_states_and_notify,
+    send_push_notification,
+)
+
 UPDATE_DELTA = timedelta(seconds=4)
-FOOTBALL_WEBAPP_ORIGIN = "https://football.schleising.net"
-FOOTBALL_PUSH_ASSET_VERSION = "1.0.4"
-FOOTBALL_PUSH_DEFAULT_ICON_PATH = (
-    f"/icons/football/webapp/android-chrome-192x192.png?v{FOOTBALL_PUSH_ASSET_VERSION}"
-)
-FOOTBALL_PUSH_BADGE_PATH = (
-    f"/icons/football/badge-192x192.png?v{FOOTBALL_PUSH_ASSET_VERSION}"
-)
-
-
-class Notification(BaseModel):
-    title: str
-    message: str
-    crest_url: str | None = None
 
 
 class TeamStatus(Enum):
@@ -211,7 +197,6 @@ class Football:
 
         self.schedule_live_updates(matches)
 
-    # Send a push notification for the change in match status
     def send_notification(
         self,
         title: str,
@@ -219,197 +204,16 @@ class Football:
         team_ids: list[int],
         icon: str | None = None,
     ) -> None:
-        if len(team_ids) == 0:
-            logging.debug("Skipping notification because no team IDs were provided")
-            return
-
-        # Get the subscriptions from the database
-        if football_push is not None:
-            subscriptions = football_push.find(
-                {"team_ids": {"$in": sorted(set(team_ids))}}
-            )
-
-            # Load the claims
-            with open("src/secrets/claims.json", "r") as file:
-                claims = json.load(file)
-
-            # Set the default icon if none is provided
-            if icon is None:
-                notification_icon = FOOTBALL_PUSH_DEFAULT_ICON_PATH
-            else:
-                separator = "&" if "?" in icon else "?"
-                notification_icon = (
-                    f"{icon}{separator}v{FOOTBALL_PUSH_ASSET_VERSION}"
-                )
-
-            notification_badge = FOOTBALL_PUSH_BADGE_PATH
-
-            # Log the notification
-            logging.info(f"Sending Notification: {title} - {message}")
-
-            sent_endpoints: set[str] = set()
-
-            # Send the push notifications
-            for subscription_data in subscriptions:
-                try:
-                    subscription_doc = PushSubscriptionDocument.model_validate(
-                        subscription_data
-                    )
-                except ValidationError as ex:
-                    logging.error(f"Invalid subscription document: {ex}")
-                    continue
-
-                endpoint = subscription_doc.subscription.endpoint
-                if endpoint in sent_endpoints:
-                    continue
-
-                sent_endpoints.add(endpoint)
-                logging.debug(f"Sending notification to endpoint {endpoint}")
-
-                try:
-                    webpush(
-                        subscription_info=subscription_doc.subscription.model_dump(
-                            by_alias=True,
-                            exclude_none=True,
-                        ),
-                        data=json.dumps(
-                            {
-                                "title": title,
-                                "body": message,
-                                "icon": notification_icon,
-                                "badge": notification_badge,
-                                "url": "https://www.schleising.net/football/",
-                                "webapp_url": f"{FOOTBALL_WEBAPP_ORIGIN}/",
-                                "requireInteraction": True,
-                            }
-                        ),
-                        headers={
-                            "Urgency": "normal",
-                        },
-                        ttl=60 * 60 * 24 * 7,
-                        vapid_private_key="/src/secrets/private_key.pem",
-                        vapid_claims=claims,
-                    )
-                except WebPushException as ex:
-                    logging.error(f"Error sending notification: {ex}")
-
-                    if ex.response is not None:
-                        logging.error(f"Status code: {ex.response.status_code}")
-                        logging.error(f"Reason: {ex.response.reason}")
-                        logging.error(f"Content: {ex.response.text.strip()}")
-
-                        if ex.response.status_code in [status_codes.codes.not_found, status_codes.codes.gone]:
-                            logging.error(
-                                "Subscription is no longer valid, removing from database"
-                            )
-                            # Remove the subscription from the database
-                            football_push.delete_one(
-                                {
-                                    "$or": [
-                                        {
-                                            "subscription.endpoint": endpoint,
-                                        },
-                                        {
-                                            "endpoint": endpoint,
-                                        },
-                                    ]
-                                }
-                            )
-                else:
-                    logging.debug("Notification sent successfully")
+        send_push_notification(title, message, team_ids, icon)
 
     def CompareMatchStates(
         self, previous_match: Match | None, current_match: Match
     ) -> None:
-        if previous_match is None:
-            logging.error("No Previous Match")
-            return
-
-        notification: Notification | None = None
-
-        if (
-            previous_match.status != current_match.status
-            and previous_match.status != MatchStatus.paused
-            and current_match.status != MatchStatus.paused
-        ):
-            if current_match.status == MatchStatus.in_play:
-                title = "Kickoff"
-            else:
-                title = str(current_match.status)
-
-            logging.debug(
-                f"Match Status Change: {previous_match.status} -> {current_match.status}"
-            )
-            notification = Notification(
-                title=title,
-                message=f'{current_match.home_team.short_name} {current_match.score.full_time.home if current_match.score.full_time.home is not None else "0"} - {current_match.score.full_time.away if current_match.score.full_time.away is not None else "0"} {current_match.away_team.short_name}',
-            )
-
-        if (
-            previous_match.score.full_time.home is not None
-            and previous_match.score.full_time.away is not None
-            and current_match.score.full_time.home is not None
-            and current_match.score.full_time.away is not None
-        ):
-            # Create the time string
-            if current_match.minute is not None:
-                time_string = f" - {current_match.minute}'"
-
-                if current_match.injury_time is not None:
-                    time_string = f"{time_string[0:-1]}+{current_match.injury_time}'"
-            else:
-                time_string = ""
-
-            if previous_match.score.full_time.home < current_match.score.full_time.home:
-                logging.debug(
-                    f"{current_match.home_team.short_name} Goal: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}{time_string}"
-                )
-                notification = Notification(
-                    title=f"{current_match.home_team.short_name} Goal{time_string}",
-                    message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
-                    crest_url=current_match.home_team.local_crest,
-                )
-            elif (
-                previous_match.score.full_time.away < current_match.score.full_time.away
-            ):
-                logging.debug(
-                    f"{current_match.away_team.short_name} Goal: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}{time_string}"
-                )
-                notification = Notification(
-                    title=f"{current_match.away_team.short_name} Goal{time_string}",
-                    message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
-                    crest_url=current_match.away_team.local_crest,
-                )
-            elif (
-                previous_match.score.full_time.home > current_match.score.full_time.home
-            ):
-                logging.debug(
-                    f"{current_match.home_team.short_name} VAR Correction: {current_match.home_team.short_name} {previous_match.score.full_time.home} -> {current_match.score.full_time.home}"
-                )
-                notification = Notification(
-                    title=f"{current_match.home_team.short_name} VAR Correction",
-                    message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
-                    crest_url=current_match.home_team.local_crest,
-                )
-            elif (
-                previous_match.score.full_time.away > current_match.score.full_time.away
-            ):
-                logging.debug(
-                    f"{current_match.away_team.short_name} VAR Correction: {current_match.away_team.short_name} {previous_match.score.full_time.away} -> {current_match.score.full_time.away}"
-                )
-                notification = Notification(
-                    title=f"{current_match.away_team.short_name} VAR Correction",
-                    message=f"{current_match.home_team.short_name} {current_match.score.full_time.home} - {current_match.score.full_time.away} {current_match.away_team.short_name}",
-                    crest_url=current_match.away_team.local_crest,
-                )
-
-        if notification is not None:
-            self.send_notification(
-                notification.title,
-                notification.message,
-                [current_match.home_team.id, current_match.away_team.id],
-                notification.crest_url,
-            )
+        compare_match_states_and_notify(
+            previous_match,
+            current_match,
+            crest_for_team=lambda team: team.local_crest,
+        )
 
     def get_matches_between_dates(
         self, from_date: datetime, to_date: datetime

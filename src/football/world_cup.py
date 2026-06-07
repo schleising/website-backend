@@ -15,6 +15,10 @@ from utils.network_utils import get_request
 
 from . import requests_session, wc_match_collection, wc_standings_collection
 from .models import Match, Matches, MatchStatus, Table, Team
+from .push_notifications import (
+    FOOTBALL_WEBAPP_ORIGIN,
+    compare_match_states_and_notify,
+)
 
 WC_EDITION = "2026"
 WC_API_BASE = "https://api.football-data.org/v4/competitions/WC"
@@ -195,6 +199,37 @@ class WorldCup:
                     tzinfo=ZoneInfo("Europe/London"),
                 ).astimezone(timezone.utc)
 
+    def _world_cup_team_crest(self, team: Team) -> str:
+        if team.id is None:
+            return "/images/football/crests/unknown_team.svg"
+
+        for suffix in (".png", ".svg"):
+            if (WC_CREST_DIR / f"{team.id}{suffix}").exists():
+                return f"/images/football/crests/wc/{team.id}{suffix}"
+
+        return "/images/football/crests/unknown_team.svg"
+
+    def _notify_match_updates(self, matches: list[Match]) -> None:
+        if wc_match_collection is None:
+            return
+
+        page_url = "https://www.schleising.net/football/world-cup/"
+        webapp_url = f"{FOOTBALL_WEBAPP_ORIGIN}/world-cup/"
+
+        for match in matches:
+            previous_document = wc_match_collection.find_one({"id": match.id})
+            previous_match = None
+            if previous_document is not None:
+                previous_match = Match.model_validate(previous_document)
+
+            compare_match_states_and_notify(
+                previous_match,
+                match,
+                crest_for_team=self._world_cup_team_crest,
+                page_url=page_url,
+                webapp_url=webapp_url,
+            )
+
     def _write_matches(self, matches: list[Match]) -> None:
         if wc_match_collection is None:
             logging.error("No World Cup match collection configured")
@@ -241,6 +276,7 @@ class WorldCup:
             return
 
         self._normalise_match_times(matches.matches)
+        self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
 
         if any(match.stage == WC_GROUP_STAGE for match in matches.matches):
