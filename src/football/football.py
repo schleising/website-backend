@@ -402,11 +402,13 @@ class Football:
 
             # Create a dict indexed by team name
             table_dict = {
-                table_item.team.short_name: table_item for table_item in table_list
+                table_item.team.display_name: table_item for table_item in table_list
             }
 
             # Add the form characters
             for table_item in table_dict.values():
+                if table_item.form is None:
+                    continue
                 # Split out the W, D, L characters into a list
                 form_list = table_item.form.split(",")
 
@@ -446,14 +448,14 @@ class Football:
                             match.score.full_time.home,
                             match.score.full_time.away,
                         )
-                        update_dict[match.home_team.short_name] = home_update
+                        update_dict[match.home_team.display_name] = home_update
 
                         away_update = TableUpdate(
                             match.status,
                             match.score.full_time.away,
                             match.score.full_time.home,
                         )
-                        update_dict[match.away_team.short_name] = away_update
+                        update_dict[match.away_team.display_name] = away_update
 
             # Update the table entry for the teams that need an update
             for team_name, table_update in update_dict.items():
@@ -549,7 +551,7 @@ class Football:
     ) -> list[LiveTableItem]:
         # Sort by team name ascending
         table_list = sorted(
-            table_list, key=lambda table_item: table_item.team.short_name
+            table_list, key=lambda table_item: table_item.team.display_name.casefold()
         )
 
         # Sort by goals for descending

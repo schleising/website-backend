@@ -205,6 +205,16 @@ class Team(BaseModel):
             return candidate
 
     @property
+    def display_name(self) -> str:
+        if self.short_name is not None:
+            return str(self.short_name)
+        if self.name is not None:
+            return self.name
+        if self.tla is not None:
+            return self.tla
+        return "TBD"
+
+    @property
     def local_crest(self) -> str:
         fallback_path = "/images/football/crests/unknown_team.svg"
         crest_value = (self.crest or "").strip()

@@ -44,7 +44,7 @@ def team_notification_label(team: Team) -> str:
 def send_push_notification(
     title: str,
     message: str,
-    team_ids: list[int | None],
+    team_ids: list[int] | list[int | None],
     icon: str | None = None,
     *,
     page_url: str = "https://www.schleising.net/football/",
