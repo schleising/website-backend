@@ -13,6 +13,7 @@ SEASON_MATCH_PATTERN = re.compile(r"^pl_matches_\d{4}_\d{4}$")
 SEASON_TABLE_PATTERN = re.compile(r"^pl_table_\d{4}_\d{4}$")
 WC_MATCH_PATTERN = re.compile(r"^wc_matches_\d{4}$")
 WC_STANDINGS_PATTERN = re.compile(r"^wc_standings_\d{4}$")
+WC_LIVE_STANDINGS_PATTERN = re.compile(r"^live_wc_standings_\d{4}$")
 
 
 def _index_matches(
@@ -217,6 +218,17 @@ def ensure_backend_indexes() -> None:
 
                 _ensure_index(
                     wc_standings,
+                    [("edition", ASCENDING), ("group_slug", ASCENDING)],
+                    unique=True,
+                )
+
+            if WC_LIVE_STANDINGS_PATTERN.match(collection_name):
+                live_wc_standings = database.get_collection(collection_name)
+                if live_wc_standings is None:
+                    continue
+
+                _ensure_index(
+                    live_wc_standings,
                     [("edition", ASCENDING), ("group_slug", ASCENDING)],
                     unique=True,
                 )

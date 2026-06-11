@@ -21,7 +21,7 @@ from . import (
     wc_standings_collection,
 )
 from .football import TableUpdate, TeamStatus
-from .models import Match, Matches, MatchStatus, Table, TableItem, Team
+from .models import LiveTableItem, Match, Matches, MatchStatus, Table, TableItem, Team
 from .push_notifications import (
     FOOTBALL_WEBAPP_ORIGIN,
     compare_match_states_and_notify,
@@ -121,18 +121,20 @@ class WorldCup:
             requests_session,
         )
 
+        if wc_standings_collection is None:
+            logging.error("No World Cup standings collection configured")
+            return
+
         if response is None:
             logging.error("Failed to download World Cup standings")
+            self._write_standings_operations(self._build_standings_operations_from_matches())
             return
 
         try:
             table = Table.model_validate_json(response.content)
         except ValidationError as error:
             logging.error("Failed to parse World Cup standings: %s", error)
-            return
-
-        if wc_standings_collection is None:
-            logging.error("No World Cup standings collection configured")
+            self._write_standings_operations(self._build_standings_operations_from_matches())
             return
 
         operations: list[UpdateOne] = []
@@ -159,11 +161,122 @@ class WorldCup:
             )
 
         if len(operations) == 0:
-            logging.debug("No World Cup standings to write")
-            return
+            operations = self._build_standings_operations_from_matches()
 
-        wc_standings_collection.bulk_write(operations)
-        logging.debug("Wrote %s World Cup group standings", len(operations))
+        self._write_standings_operations(operations)
+
+    def _write_standings_operations(self, operations: list[UpdateOne]) -> None:
+        if len(operations) == 0:
+            logging.debug("No World Cup standings to write")
+        else:
+            wc_standings_collection.bulk_write(operations)
+            logging.debug("Wrote %s World Cup group standings", len(operations))
+
+        self.update_live_standings(None)
+
+    def _build_standings_operations_from_matches(self) -> list[UpdateOne]:
+        if wc_match_collection is None or wc_standings_collection is None:
+            return []
+
+        group_matches: dict[str, list[Match]] = {}
+        for item in wc_match_collection.find(
+            {"stage": WC_GROUP_STAGE, "group": {"$ne": None}}
+        ):
+            try:
+                match = Match.model_validate(item)
+            except ValidationError:
+                continue
+
+            if not isinstance(match.group, str):
+                continue
+
+            group_matches.setdefault(match.group, []).append(match)
+
+        operations: list[UpdateOne] = []
+        for group_enum, matches in sorted(group_matches.items()):
+            slug = group_enum.removeprefix("GROUP_").lower()
+            teams_by_id: dict[int, Team] = {}
+            for match in matches:
+                for team in (match.home_team, match.away_team):
+                    if team.id is not None:
+                        teams_by_id[team.id] = team
+
+            if len(teams_by_id) == 0:
+                continue
+
+            table_rows = [
+                TableItem(
+                    position=index,
+                    team=team,
+                    played_games=0,
+                    won=0,
+                    draw=0,
+                    lost=0,
+                    points=0,
+                    goals_for=0,
+                    goals_against=0,
+                    goal_difference=0,
+                )
+                for index, team in enumerate(
+                    sorted(
+                        teams_by_id.values(),
+                        key=lambda value: value.display_name.casefold(),
+                    ),
+                    start=1,
+                )
+            ]
+            table_dict = {
+                row.team.id: row for row in table_rows if row.team.id is not None
+            }
+
+            for match in matches:
+                if not match.status.has_finished:
+                    continue
+                home_score = match.score.full_time.home
+                away_score = match.score.full_time.away
+                if home_score is None or away_score is None:
+                    continue
+
+                for team, goals_for, goals_against in (
+                    (match.home_team, home_score, away_score),
+                    (match.away_team, away_score, home_score),
+                ):
+                    if team.id is None or team.id not in table_dict:
+                        continue
+                    row = table_dict[team.id]
+                    row.played_games += 1
+                    row.goals_for += goals_for
+                    row.goals_against += goals_against
+                    row.goal_difference += goals_for - goals_against
+                    if goals_for > goals_against:
+                        row.won += 1
+                        row.points += 3
+                    elif goals_for == goals_against:
+                        row.draw += 1
+                        row.points += 1
+                    else:
+                        row.lost += 1
+
+            sorted_rows = self._update_group_positions(list(table_dict.values()))
+            operations.append(
+                UpdateOne(
+                    {"edition": self.edition, "group_slug": slug},
+                    {
+                        "$set": {
+                            "edition": self.edition,
+                            "group_slug": slug,
+                            "group_label": f"Group {slug.upper()}",
+                            "group_enum": group_enum,
+                            "stage": WC_GROUP_STAGE,
+                            "type": "TOTAL",
+                            "table": [row.model_dump() for row in sorted_rows],
+                        }
+                    },
+                    upsert=True,
+                )
+            )
+
+        return operations
 
     def sync_teams_and_crests(self) -> None:
         logging.debug("Getting World Cup teams")
@@ -344,13 +457,14 @@ class WorldCup:
                 continue
 
             table_rows = [
-                TableItem.model_validate(row) for row in document.get("table", [])
+                LiveTableItem.model_validate(row) for row in document.get("table", [])
             ]
-            table_dict = {
-                table_item.team.display_name: table_item for table_item in table_rows
-            }
+            table_dict: dict[int, LiveTableItem] = {}
+            for table_item in table_rows:
+                if table_item.team.id is not None:
+                    table_dict[table_item.team.id] = table_item
 
-            update_dict: dict[str, TableUpdate] = {}
+            update_dict: dict[int, TableUpdate] = {}
             for match in todays_group_matches:
                 if match.group != group_enum:
                     continue
@@ -360,34 +474,70 @@ class WorldCup:
                     and match.score.full_time.home is not None
                     and match.score.full_time.away is not None
                 ):
-                    home_update = TableUpdate(
-                        match.status,
-                        match.score.full_time.home,
-                        match.score.full_time.away,
-                    )
-                    update_dict[match.home_team.display_name] = home_update
+                    if match.home_team.id is not None:
+                        update_dict[match.home_team.id] = TableUpdate(
+                            match.status,
+                            match.score.full_time.home,
+                            match.score.full_time.away,
+                        )
 
-                    away_update = TableUpdate(
-                        match.status,
-                        match.score.full_time.away,
-                        match.score.full_time.home,
-                    )
-                    update_dict[match.away_team.display_name] = away_update
+                    if match.away_team.id is not None:
+                        update_dict[match.away_team.id] = TableUpdate(
+                            match.status,
+                            match.score.full_time.away,
+                            match.score.full_time.home,
+                        )
 
-            for team_name, table_update in update_dict.items():
-                if team_name not in table_dict:
+            for table_item in table_dict.values():
+                table_item.has_started = False
+                table_item.is_halftime = False
+                table_item.has_finished = False
+                table_item.score_string = None
+                table_item.css_class = None
+
+            for team_id, table_update in update_dict.items():
+                if team_id not in table_dict:
                     continue
 
-                table_dict[team_name].played_games += table_update.played
-                table_dict[team_name].won += table_update.won
-                table_dict[team_name].draw += table_update.draw
-                table_dict[team_name].lost += table_update.lost
-                table_dict[team_name].points += table_update.points
-                table_dict[team_name].goals_for += table_update.goals_for
-                table_dict[team_name].goals_against += table_update.goals_against
-                table_dict[team_name].goal_difference += table_update.goal_difference
+                table_dict[team_id].has_started = (
+                    table_update.match_status.has_started
+                )
+                table_dict[team_id].is_halftime = (
+                    table_update.match_status.is_halftime
+                )
+                table_dict[team_id].has_finished = (
+                    table_update.match_status.has_finished
+                )
+                table_dict[team_id].score_string = (
+                    f"{table_update.goals_for} - {table_update.goals_against}"
+                )
 
-            table_list = self._update_group_positions(list(table_dict.values()))
+                match table_update.team_status:
+                    case TeamStatus.winning:
+                        table_dict[team_id].css_class = "live-position winning"
+                    case TeamStatus.losing:
+                        table_dict[team_id].css_class = "live-position losing"
+                    case TeamStatus.drawing:
+                        table_dict[team_id].css_class = "live-position drawing"
+
+                if (
+                    table_update.match_status.has_started
+                    and not table_update.match_status.has_finished
+                ):
+                    table_dict[team_id].css_class = (
+                        f"{table_dict[team_id].css_class} in-play"
+                    )
+
+                table_dict[team_id].played_games += table_update.played
+                table_dict[team_id].won += table_update.won
+                table_dict[team_id].draw += table_update.draw
+                table_dict[team_id].lost += table_update.lost
+                table_dict[team_id].points += table_update.points
+                table_dict[team_id].goals_for += table_update.goals_for
+                table_dict[team_id].goals_against += table_update.goals_against
+                table_dict[team_id].goal_difference += table_update.goal_difference
+
+            table_list = self._update_group_positions(table_rows)
             group_slug = document.get("group_slug")
             if not isinstance(group_slug, str):
                 continue
@@ -421,8 +571,8 @@ class WorldCup:
             logging.debug("Wrote %s World Cup live group standings", len(operations))
 
     def _update_group_positions(
-        self, table_list: list[TableItem]
-    ) -> list[TableItem]:
+        self, table_list: list[LiveTableItem]
+    ) -> list[LiveTableItem]:
         table_list = sorted(
             table_list, key=lambda table_item: table_item.team.display_name.casefold()
         )
