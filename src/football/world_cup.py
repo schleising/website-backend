@@ -469,23 +469,24 @@ class WorldCup:
                 if match.group != group_enum:
                     continue
 
+                home_score, away_score = match.score.display_scoreline()
                 if (
                     match.status.has_started
-                    and match.score.full_time.home is not None
-                    and match.score.full_time.away is not None
+                    and home_score is not None
+                    and away_score is not None
                 ):
                     if match.home_team.id is not None:
                         update_dict[match.home_team.id] = TableUpdate(
                             match.status,
-                            match.score.full_time.home,
-                            match.score.full_time.away,
+                            home_score,
+                            away_score,
                         )
 
                     if match.away_team.id is not None:
                         update_dict[match.away_team.id] = TableUpdate(
                             match.status,
-                            match.score.full_time.away,
-                            match.score.full_time.home,
+                            away_score,
+                            home_score,
                         )
 
             for table_item in table_dict.values():

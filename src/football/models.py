@@ -311,9 +311,47 @@ class Score(BaseModel):
     duration: str
     full_time: FullTime = Field(..., alias="fullTime")
     half_time: HalfTime = Field(..., alias="halfTime")
+    extra_time: FullTime | None = Field(default=None, alias="extraTime")
+    penalties: FullTime | None = None
 
     class Config:
         populate_by_name = True
+
+    def display_scoreline(self) -> tuple[int | None, int | None]:
+        home_ft = self.full_time.home
+        away_ft = self.full_time.away
+        if home_ft is None or away_ft is None:
+            return home_ft, away_ft
+
+        if self._went_to_extra_time():
+            extra_time = self.extra_time
+            if (
+                extra_time is not None
+                and extra_time.home is not None
+                and extra_time.away is not None
+            ):
+                return extra_time.home, extra_time.away
+
+        return home_ft, away_ft
+
+    def _went_to_extra_time(self) -> bool:
+        if self.duration in {"EXTRA_TIME", "PENALTY_SHOOTOUT"}:
+            return True
+
+        penalties = self.penalties
+        if (
+            penalties is not None
+            and penalties.home is not None
+            and penalties.away is not None
+        ):
+            return True
+
+        extra_time = self.extra_time
+        return (
+            extra_time is not None
+            and extra_time.home is not None
+            and extra_time.away is not None
+        )
 
 
 class Odds(BaseModel):
