@@ -51,6 +51,18 @@ def _match_on_wc_tournament_day(match: Match, day: date | None = None) -> bool:
     return kickoff.astimezone(WC_TOURNAMENT_TZ).date() == tournament_day
 
 
+def _wc_tournament_day_bounds(day: date | None = None) -> tuple[datetime, datetime]:
+    tournament_day = day or _wc_tournament_today()
+    day_start = datetime(
+        tournament_day.year,
+        tournament_day.month,
+        tournament_day.day,
+        tzinfo=WC_TOURNAMENT_TZ,
+    ).astimezone(timezone.utc)
+    next_day_start = day_start + timedelta(days=1)
+    return day_start, next_day_start - timedelta(microseconds=1)
+
+
 def _next_wc_tournament_midnight_utc(*, now: datetime | None = None) -> datetime:
     current = now or datetime.now(timezone.utc)
     local_now = current.astimezone(WC_TOURNAMENT_TZ)
@@ -461,6 +473,39 @@ class WorldCup:
 
         self.schedule_live_updates(matches.matches)
 
+    def _todays_started_group_matches(
+        self, matches: list[Match] | None
+    ) -> list[Match]:
+        tournament_today = _wc_tournament_today()
+
+        if matches is not None:
+            candidate_matches = matches
+        elif wc_match_collection is None:
+            return []
+        else:
+            day_start, day_end = _wc_tournament_day_bounds(tournament_today)
+            candidate_matches = []
+            for item in wc_match_collection.find(
+                {
+                    "stage": WC_GROUP_STAGE,
+                    "group": {"$ne": None},
+                    "utc_date": {"$gte": day_start, "$lte": day_end},
+                }
+            ):
+                try:
+                    candidate_matches.append(Match.model_validate(item))
+                except ValidationError:
+                    continue
+
+        return [
+            match
+            for match in candidate_matches
+            if match.stage == WC_GROUP_STAGE
+            and match.group is not None
+            and _match_on_wc_tournament_day(match, tournament_today)
+            and match.status.has_started
+        ]
+
     def update_live_standings(self, matches: list[Match] | None) -> None:
         if wc_standings_collection is None or live_wc_standings_collection is None:
             logging.error("No World Cup standings collections configured")
@@ -473,17 +518,7 @@ class WorldCup:
             logging.debug("No World Cup group standings in DB to update live")
             return
 
-        todays_group_matches: list[Match] = []
-        if matches is not None:
-            tournament_today = _wc_tournament_today()
-            todays_group_matches = [
-                match
-                for match in matches
-                if match.stage == WC_GROUP_STAGE
-                and match.group is not None
-                and _match_on_wc_tournament_day(match, tournament_today)
-                and not match.status.has_finished
-            ]
+        todays_group_matches = self._todays_started_group_matches(matches)
 
         operations: list[UpdateOne] = []
 
@@ -506,24 +541,22 @@ class WorldCup:
                     continue
 
                 home_score, away_score = match.score.display_scoreline()
-                if (
-                    match.status.has_started
-                    and home_score is not None
-                    and away_score is not None
-                ):
-                    if match.home_team.id is not None:
-                        update_dict[match.home_team.id] = TableUpdate(
-                            match.status,
-                            home_score,
-                            away_score,
-                        )
+                if home_score is None or away_score is None:
+                    continue
 
-                    if match.away_team.id is not None:
-                        update_dict[match.away_team.id] = TableUpdate(
-                            match.status,
-                            away_score,
-                            home_score,
-                        )
+                if match.home_team.id is not None:
+                    update_dict[match.home_team.id] = TableUpdate(
+                        match.status,
+                        home_score,
+                        away_score,
+                    )
+
+                if match.away_team.id is not None:
+                    update_dict[match.away_team.id] = TableUpdate(
+                        match.status,
+                        away_score,
+                        home_score,
+                    )
 
             for table_item in table_dict.values():
                 table_item.has_started = False
@@ -564,6 +597,9 @@ class WorldCup:
                     table_dict[team_id].css_class = (
                         f"{table_dict[team_id].css_class} in-play"
                     )
+
+                if table_update.match_status.has_finished:
+                    continue
 
                 table_dict[team_id].played_games += table_update.played
                 table_dict[team_id].won += table_update.won
