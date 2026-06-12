@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -33,8 +33,34 @@ WC_TOURNAMENT_START = datetime(2026, 6, 11, tzinfo=timezone.utc)
 WC_TOURNAMENT_END = datetime(2026, 7, 19, 23, 59, 59, tzinfo=timezone.utc)
 WC_GROUP_STAGE = "GROUP_STAGE"
 WC_UPDATE_DELTA = timedelta(seconds=4)
+WC_TOURNAMENT_TZ = ZoneInfo("America/Los_Angeles")
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
 WC_CREST_ALLOWED_HOSTS = frozenset({"crests.football-data.org"})
+
+
+def _wc_tournament_today(*, now: datetime | None = None) -> date:
+    current = now or datetime.now(timezone.utc)
+    return current.astimezone(WC_TOURNAMENT_TZ).date()
+
+
+def _match_on_wc_tournament_day(match: Match, day: date | None = None) -> bool:
+    tournament_day = day or _wc_tournament_today()
+    kickoff = match.utc_date
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=timezone.utc)
+    return kickoff.astimezone(WC_TOURNAMENT_TZ).date() == tournament_day
+
+
+def _next_wc_tournament_midnight_utc(*, now: datetime | None = None) -> datetime:
+    current = now or datetime.now(timezone.utc)
+    local_now = current.astimezone(WC_TOURNAMENT_TZ)
+    next_midnight_local = datetime(
+        local_now.year,
+        local_now.month,
+        local_now.day,
+        tzinfo=WC_TOURNAMENT_TZ,
+    ) + timedelta(days=1)
+    return next_midnight_local.astimezone(timezone.utc)
 
 
 class CompetitionTeamsResponse(BaseModel):
@@ -46,16 +72,7 @@ class WorldCup:
         self.scheduler = scheduler
         self.edition = WC_EDITION
 
-        current_date_utc = datetime.now(timezone.utc).date()
-        next_sync_time = datetime(
-            current_date_utc.year,
-            current_date_utc.month,
-            current_date_utc.day,
-            1,
-            tzinfo=timezone.utc,
-        )
-        if datetime.now(timezone.utc).time() >= time(hour=1):
-            next_sync_time += timedelta(days=1)
+        next_sync_time = _next_wc_tournament_midnight_utc()
 
         self.scheduler.schedule_task(
             next_sync_time,
@@ -107,11 +124,12 @@ class WorldCup:
     def sync_standings(self) -> None:
         logging.debug("Getting World Cup standings")
 
-        today = datetime.now(timezone.utc).date()
-        if today < WC_TOURNAMENT_START.date():
-            table_date = WC_TOURNAMENT_START.date()
+        today = _wc_tournament_today()
+        if today < WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date():
+            table_date = WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date()
         else:
-            table_date = min(today, WC_TOURNAMENT_END.date())
+            tournament_end = WC_TOURNAMENT_END.astimezone(WC_TOURNAMENT_TZ).date()
+            table_date = min(today, tournament_end)
 
         response = get_request(
             (
@@ -394,16 +412,19 @@ class WorldCup:
 
     def get_todays_matches(self) -> None:
         now = datetime.now(timezone.utc)
-        today = now.date()
+        tournament_today = _wc_tournament_today(now=now)
+        tournament_start = WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date()
+        tournament_end = WC_TOURNAMENT_END.astimezone(WC_TOURNAMENT_TZ).date()
 
-        if today < WC_TOURNAMENT_START.date() or today > WC_TOURNAMENT_END.date():
+        if tournament_today < tournament_start or tournament_today > tournament_end:
             self._schedule_next_tournament_poll(now)
             return
 
         response = get_request(
             (
                 f"{WC_API_BASE}/matches"
-                f"?dateFrom={today}&dateTo={today}&season={self.edition}"
+                f"?dateFrom={tournament_today}&dateTo={tournament_today}"
+                f"&season={self.edition}"
             ),
             requests_session,
         )
@@ -425,6 +446,17 @@ class WorldCup:
         self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
+
+        todays_group_matches = [
+            match
+            for match in matches.matches
+            if match.stage == WC_GROUP_STAGE
+            and match.group is not None
+            and _match_on_wc_tournament_day(match, tournament_today)
+        ]
+        if any(match.status.has_finished for match in todays_group_matches):
+            self.sync_standings()
+
         self.update_live_standings(matches.matches)
 
         self.schedule_live_updates(matches.matches)
@@ -443,10 +475,14 @@ class WorldCup:
 
         todays_group_matches: list[Match] = []
         if matches is not None:
+            tournament_today = _wc_tournament_today()
             todays_group_matches = [
                 match
                 for match in matches
-                if match.stage == WC_GROUP_STAGE and match.group is not None
+                if match.stage == WC_GROUP_STAGE
+                and match.group is not None
+                and _match_on_wc_tournament_day(match, tournament_today)
+                and not match.status.has_finished
             ]
 
         operations: list[UpdateOne] = []
@@ -595,16 +631,11 @@ class WorldCup:
         return table_list
 
     def _schedule_next_tournament_poll(self, now: datetime) -> None:
-        if now.date() < WC_TOURNAMENT_START.date():
+        tournament_start = WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date()
+        if _wc_tournament_today(now=now) < tournament_start:
             next_poll = WC_TOURNAMENT_START
         else:
-            next_day = now.date() + timedelta(days=1)
-            next_poll = datetime(
-                next_day.year,
-                next_day.month,
-                next_day.day,
-                tzinfo=timezone.utc,
-            )
+            next_poll = _next_wc_tournament_midnight_utc(now=now)
 
         logging.debug("Next World Cup live poll scheduled for %s", next_poll)
         self.scheduler.schedule_task(next_poll, self.get_todays_matches)
