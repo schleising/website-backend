@@ -63,6 +63,12 @@ def _wc_tournament_day_bounds(day: date | None = None) -> tuple[datetime, dateti
     return day_start, next_day_start - timedelta(microseconds=1)
 
 
+def _wc_tournament_day_api_dates(day: date | None = None) -> tuple[date, date]:
+    """Calendar dates to pass to football-data dateFrom/dateTo for one tournament day."""
+    day_start, day_end = _wc_tournament_day_bounds(day)
+    return day_start.date(), day_end.date()
+
+
 def _next_wc_tournament_midnight_utc(*, now: datetime | None = None) -> datetime:
     current = now or datetime.now(timezone.utc)
     local_now = current.astimezone(WC_TOURNAMENT_TZ)
@@ -131,7 +137,16 @@ class WorldCup:
             return
 
         self._normalise_match_times(matches.matches)
+        self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
+
+    def _matches_on_tournament_today(self, matches: list[Match]) -> list[Match]:
+        tournament_today = _wc_tournament_today()
+        return [
+            match
+            for match in matches
+            if _match_on_wc_tournament_day(match, tournament_today)
+        ]
 
     def sync_standings(self) -> None:
         logging.debug("Getting World Cup standings")
@@ -432,10 +447,12 @@ class WorldCup:
             self._schedule_next_tournament_poll(now)
             return
 
+        api_date_from, api_date_to = _wc_tournament_day_api_dates(tournament_today)
+
         response = get_request(
             (
                 f"{WC_API_BASE}/matches"
-                f"?dateFrom={tournament_today}&dateTo={tournament_today}"
+                f"?dateFrom={api_date_from}&dateTo={api_date_to}"
                 f"&season={self.edition}"
             ),
             requests_session,
@@ -471,7 +488,9 @@ class WorldCup:
 
         self.update_live_standings(matches.matches)
 
-        self.schedule_live_updates(matches.matches)
+        self.schedule_live_updates(
+            self._matches_on_tournament_today(matches.matches)
+        )
 
     def _todays_started_group_matches(
         self, matches: list[Match] | None
@@ -712,6 +731,7 @@ class WorldCup:
 
                 if len(todays_matches) == 0:
                     logging.debug("No more World Cup matches today")
+                    self._schedule_next_tournament_poll(datetime.now(timezone.utc))
                     return
 
                 next_match_utc = min(
@@ -729,6 +749,7 @@ class WorldCup:
                 return
 
             logging.debug("No more World Cup matches today")
+            self._schedule_next_tournament_poll(datetime.now(timezone.utc))
             return
 
         logging.error("Rescheduling World Cup match update due to error")
