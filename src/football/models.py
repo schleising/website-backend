@@ -1,8 +1,17 @@
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def football_api_field(snake_name: str, api_alias: str, **kwargs: Any) -> Any:
+    return Field(
+        validation_alias=AliasChoices(snake_name, api_alias),
+        serialization_alias=api_alias,
+        **kwargs,
+    )
 
 
 class ShortName(str, Enum):
@@ -182,12 +191,13 @@ class Competition(BaseModel):
 class Team(BaseModel):
     id: int | None = None
     name: str | None = None
-    short_name: ShortName | str | None = Field(default=None, alias="shortName")
+    short_name: ShortName | str | None = football_api_field(
+        "short_name", "shortName", default=None
+    )
     tla: str | None = None
     crest: str | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("short_name", mode="before")
     @classmethod
@@ -234,30 +244,28 @@ class Team(BaseModel):
 
 class Season(BaseModel):
     id: int
-    start_date: str = Field(..., alias="startDate")
-    end_date: str = Field(..., alias="endDate")
-    current_matchday: int = Field(..., alias="currentMatchday")
+    start_date: str = football_api_field("start_date", "startDate")
+    end_date: str = football_api_field("end_date", "endDate")
+    current_matchday: int = football_api_field("current_matchday", "currentMatchday")
     winner: Team | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TableItem(BaseModel):
     position: int
     team: Team
-    played_games: int = Field(..., alias="playedGames")
+    played_games: int = football_api_field("played_games", "playedGames")
     form: str | None = None
     won: int
     draw: int
     lost: int
     points: int
-    goals_for: int = Field(..., alias="goalsFor")
-    goals_against: int = Field(..., alias="goalsAgainst")
-    goal_difference: int = Field(..., alias="goalDifference")
+    goals_for: int = football_api_field("goals_for", "goalsFor")
+    goals_against: int = football_api_field("goals_against", "goalsAgainst")
+    goal_difference: int = football_api_field("goal_difference", "goalDifference")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class FormItem(BaseModel):
@@ -309,13 +317,14 @@ class HalfTime(BaseModel):
 class Score(BaseModel):
     winner: str | None = None
     duration: str
-    full_time: FullTime = Field(..., alias="fullTime")
-    half_time: HalfTime = Field(..., alias="halfTime")
-    extra_time: FullTime | None = Field(default=None, alias="extraTime")
+    full_time: FullTime = football_api_field("full_time", "fullTime")
+    half_time: HalfTime = football_api_field("half_time", "halfTime")
+    extra_time: FullTime | None = football_api_field(
+        "extra_time", "extraTime", default=None
+    )
     penalties: FullTime | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     def display_scoreline(self) -> tuple[int | None, int | None]:
         home_ft = self.full_time.home
@@ -370,23 +379,24 @@ class Match(BaseModel):
     competition: Competition
     season: Season
     id: int
-    utc_date: datetime = Field(..., alias="utcDate")
+    utc_date: datetime = football_api_field("utc_date", "utcDate")
     local_date: datetime | None = None
     status: MatchStatus
     minute: int | None = None
-    injury_time: int | None = Field(default=None, alias="injuryTime")
+    injury_time: int | None = football_api_field(
+        "injury_time", "injuryTime", default=None
+    )
     matchday: int | None = None
     stage: str
     group: str | None = None
-    last_updated: datetime = Field(..., alias="lastUpdated")
-    home_team: Team = Field(..., alias="homeTeam")
-    away_team: Team = Field(..., alias="awayTeam")
+    last_updated: datetime = football_api_field("last_updated", "lastUpdated")
+    home_team: Team = football_api_field("home_team", "homeTeam")
+    away_team: Team = football_api_field("away_team", "awayTeam")
     score: Score
     odds: Odds
     referees: list[Referee]
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     def team_points(self, team_name: str) -> int | None:
         if (
@@ -415,12 +425,11 @@ class Match(BaseModel):
 
 class Matches(BaseModel):
     filters: Filters
-    result_set: ResultSet = Field(..., alias="resultSet")
+    result_set: ResultSet = football_api_field("result_set", "resultSet")
     competition: Competition
     matches: list[Match]
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MatchList(BaseModel):
@@ -434,11 +443,12 @@ class PushSubscriptionKeys(BaseModel):
 
 class PushSubscription(BaseModel):
     endpoint: str
-    expiration_time: int | None = Field(default=None, alias="expirationTime")
+    expiration_time: int | None = football_api_field(
+        "expiration_time", "expirationTime", default=None
+    )
     keys: PushSubscriptionKeys
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PushSubscriptionDocument(BaseModel):

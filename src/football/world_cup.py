@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta, timezone
+from typing import TypeVar
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -22,6 +24,8 @@ from . import (
 )
 from .football import TableUpdate, TeamStatus
 from .models import LiveTableItem, Match, Matches, MatchStatus, Table, TableItem, Team
+
+TableRowT = TypeVar("TableRowT", bound=TableItem)
 from .push_notifications import (
     FOOTBALL_WEBAPP_ORIGIN,
     compare_match_states_and_notify,
@@ -213,6 +217,8 @@ class WorldCup:
     def _write_standings_operations(self, operations: list[UpdateOne]) -> None:
         if len(operations) == 0:
             logging.debug("No World Cup standings to write")
+        elif wc_standings_collection is None:
+            logging.error("No World Cup standings collection configured")
         else:
             wc_standings_collection.bulk_write(operations)
             logging.debug("Wrote %s World Cup group standings", len(operations))
@@ -663,8 +669,8 @@ class WorldCup:
             logging.debug("Wrote %s World Cup live group standings", len(operations))
 
     def _update_group_positions(
-        self, table_list: list[LiveTableItem]
-    ) -> list[LiveTableItem]:
+        self, table_list: Sequence[TableRowT]
+    ) -> list[TableRowT]:
         table_list = sorted(
             table_list, key=lambda table_item: table_item.team.display_name.casefold()
         )
