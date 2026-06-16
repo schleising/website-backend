@@ -36,7 +36,10 @@ adapter = HTTPAdapter(max_retries=3)
 requests_session.mount('https://', adapter)
 
 # Add headers to the session
-requests_session.headers.update({ 'X-Auth-Token': api_key })
+requests_session.headers.update({
+    'X-Auth-Token': api_key,
+    'X-Api-Version': 'v4.1',
+})
 
 # Function to close the session on exit
 def close_requests_session() -> None:
