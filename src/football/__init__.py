@@ -1,4 +1,5 @@
 import atexit
+import logging
 import sys
 from pathlib import Path
 
@@ -6,6 +7,38 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from database import BackendDatabase
+from utils.network_utils import football_api_rate_limit_headers
+
+logger = logging.getLogger(__name__)
+
+FOOTBALL_DATA_API_HOST = "api.football-data.org"
+
+
+def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -> requests.Response:
+    if FOOTBALL_DATA_API_HOST not in response.url:
+        return response
+
+    elapsed_ms = response.elapsed.total_seconds() * 1000 if response.elapsed else 0.0
+    rate_headers = football_api_rate_limit_headers(response.headers)
+    method = response.request.method if response.request is not None else "GET"
+
+    logger.info(
+        "Football API %s %s -> %s (%.0f ms) rate=%s",
+        method,
+        response.url,
+        response.status_code,
+        elapsed_ms,
+        rate_headers or "n/a",
+    )
+
+    if response.status_code == requests.codes.too_many_requests:
+        logger.warning(
+            "Football API rate limited (429) Retry-After=%s headers=%s",
+            response.headers.get("Retry-After", "unknown"),
+            rate_headers or "n/a",
+        )
+
+    return response
 
 mongo_db = BackendDatabase()
 
@@ -40,6 +73,7 @@ requests_session.headers.update({
     'X-Auth-Token': api_key,
     'X-Api-Version': 'v4.1',
 })
+requests_session.hooks['response'].append(_log_football_api_response)
 
 # Function to close the session on exit
 def close_requests_session() -> None:

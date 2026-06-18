@@ -9,11 +9,27 @@ from requests.exceptions import (
     TooManyRedirects
 )
 
+FOOTBALL_DATA_API_HOST = "api.football-data.org"
+_RATE_LIMIT_HEADER_PREFIXES = ("x-request", "x-ratelimit", "retry-after")
+
+
+def football_api_rate_limit_headers(headers) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in headers.items()
+        if any(name.lower().startswith(prefix) for prefix in _RATE_LIMIT_HEADER_PREFIXES)
+    }
+
+
 def get_request(url: str, session: Session) -> Response | None:
     """
     Perform a GET request to the specified URL using the provided session.
     Returns the response if successful, or None if an error occurs.
     """
+    is_football_api = FOOTBALL_DATA_API_HOST in url
+    if is_football_api:
+        logging.info("Football API request: GET %s", url)
+
     try:
         response = session.get(url, timeout=5)
 
@@ -21,11 +37,19 @@ def get_request(url: str, session: Session) -> Response | None:
             return response
 
         if response.status_code == status_codes.codes.too_many_requests:
-            retry_after = response.headers.get("Retry-After", "unknown")
+            rate_headers = football_api_rate_limit_headers(response.headers)
             logging.error(
-                "Request to %s rate limited (429). Retry-After: %s",
+                "Football API rate limited (429): GET %s Retry-After=%s headers=%s",
                 url,
-                retry_after,
+                response.headers.get("Retry-After", "unknown"),
+                rate_headers or "n/a",
+            )
+        elif is_football_api:
+            logging.error(
+                "Football API request failed: GET %s -> %s headers=%s",
+                url,
+                response.status_code,
+                football_api_rate_limit_headers(response.headers) or "n/a",
             )
         else:
             logging.error(
@@ -34,14 +58,27 @@ def get_request(url: str, session: Session) -> Response | None:
                 response.status_code,
             )
     except Timeout:
-        logging.error(f"Request to {url} timed out.")
+        if is_football_api:
+            logging.error("Football API request timed out: GET %s", url)
+        else:
+            logging.error("Request to %s timed out.", url)
     except ConnectionError:
-        logging.error(f"Connection error occurred while trying to reach {url}.")
+        if is_football_api:
+            logging.error("Football API connection error: GET %s", url)
+        else:
+            logging.error("Connection error occurred while trying to reach %s.", url)
     except HTTPError as http_err:
-        logging.error(f"HTTP error occurred: {http_err} - Status Code: {http_err.response.status_code}")
+        status = http_err.response.status_code if http_err.response is not None else "unknown"
+        if is_football_api:
+            logging.error("Football API HTTP error: GET %s status=%s", url, status)
+        else:
+            logging.error("HTTP error occurred: %s - Status Code: %s", http_err, status)
     except TooManyRedirects:
-        logging.error(f"Too many redirects for URL: {url}.")
+        logging.error("Too many redirects for URL: %s", url)
     except RequestException as req_err:
-        logging.error(f"An error occurred: {req_err}")
+        if is_football_api:
+            logging.error("Football API request error: GET %s %s", url, req_err)
+        else:
+            logging.error("An error occurred: %s", req_err)
 
     return None
