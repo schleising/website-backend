@@ -1,5 +1,6 @@
 import logging
 
+import requests
 from requests import Session, Response, status_codes
 from requests.exceptions import (
     Timeout,
@@ -10,7 +11,14 @@ from requests.exceptions import (
 )
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
+FOOTBALL_DATA_HOST = "football-data.org"
+# TODO: Re-enable football-data.org sync — set to True once rate-limit issue is resolved.
+FOOTBALL_API_ENABLED = False
 _RATE_LIMIT_HEADER_PREFIXES = ("x-request", "x-ratelimit", "retry-after")
+
+
+def is_football_data_url(url: str) -> bool:
+    return FOOTBALL_DATA_HOST in url
 
 
 def football_api_rate_limit_headers(headers) -> dict[str, str]:
@@ -26,7 +34,12 @@ def get_request(url: str, session: Session) -> Response | None:
     Perform a GET request to the specified URL using the provided session.
     Returns the response if successful, or None if an error occurs.
     """
-    is_football_api = FOOTBALL_DATA_API_HOST in url
+    is_football_api = is_football_data_url(url)
+    # TODO: Remove this block when FOOTBALL_API_ENABLED is True (see flag above).
+    if is_football_api and not FOOTBALL_API_ENABLED:
+        logging.warning("Football API disabled; skipping GET %s", url)
+        return None
+
     if is_football_api:
         logging.info("Football API request: GET %s", url)
 
@@ -82,3 +95,34 @@ def get_request(url: str, session: Session) -> Response | None:
             logging.error("An error occurred: %s", req_err)
 
     return None
+
+
+def get_football_data_http(url: str, **kwargs) -> Response | None:
+    """GET a football-data.org URL outside the shared session (e.g. crest assets)."""
+    # TODO: Remove this block when FOOTBALL_API_ENABLED is True (see flag above).
+    if is_football_data_url(url) and not FOOTBALL_API_ENABLED:
+        logging.warning("Football API disabled; skipping GET %s", url)
+        return None
+
+    if is_football_data_url(url):
+        logging.info("Football API request: GET %s", url)
+
+    try:
+        response = requests.get(url, **kwargs)
+    except RequestException as error:
+        if is_football_data_url(url):
+            logging.error("Football API request error: GET %s %s", url, error)
+        else:
+            logging.error("Request error: GET %s %s", url, error)
+        return None
+
+    if is_football_data_url(url):
+        logging.info(
+            "Football API GET %s -> %s (%.0f ms) rate=%s",
+            url,
+            response.status_code,
+            response.elapsed.total_seconds() * 1000 if response.elapsed else 0.0,
+            football_api_rate_limit_headers(response.headers) or "n/a",
+        )
+
+    return response

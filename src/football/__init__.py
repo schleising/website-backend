@@ -7,11 +7,15 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from database import BackendDatabase
-from utils.network_utils import football_api_rate_limit_headers
+from utils.network_utils import FOOTBALL_API_ENABLED, football_api_rate_limit_headers
 
 logger = logging.getLogger(__name__)
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
+
+if not FOOTBALL_API_ENABLED:
+    # TODO: Remove when FOOTBALL_API_ENABLED is True in utils/network_utils.py.
+    logger.warning("Football API calls are DISABLED (FOOTBALL_API_ENABLED=False)")
 
 
 def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -> requests.Response:

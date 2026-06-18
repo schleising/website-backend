@@ -9,12 +9,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-import requests
 from pydantic import BaseModel, Field, ValidationError
 from pymongo.operations import UpdateOne
 
 from task_scheduler import TaskScheduler
-from utils.network_utils import get_request
+from utils.network_utils import get_football_data_http, get_request
 
 from . import (
     live_wc_standings_collection,
@@ -377,7 +376,9 @@ class WorldCup:
             return
 
         try:
-            crest_response = requests.get(crest_url, timeout=20)
+            crest_response = get_football_data_http(crest_url, timeout=20)
+            if crest_response is None:
+                return
             crest_response.raise_for_status()
             destination.write_bytes(crest_response.content)
             logging.debug("Saved World Cup crest for team %s", team.id)
