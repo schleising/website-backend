@@ -1,20 +1,101 @@
 import logging
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
-import requests
 from requests import Session, Response, status_codes
 from requests.exceptions import (
     Timeout,
     ConnectionError,
     RequestException,
     HTTPError,
-    TooManyRedirects
+    TooManyRedirects,
 )
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
 FOOTBALL_DATA_HOST = "football-data.org"
-# TODO: Re-enable football-data.org sync — set to True once rate-limit issue is resolved.
-FOOTBALL_API_ENABLED = False
+FOOTBALL_API_MIN_INTERVAL = timedelta(seconds=4)
+_DAILY_BACKOFF_SECONDS = (4, 8, 16, 32, 60)
 _RATE_LIMIT_HEADER_PREFIXES = ("x-request", "x-ratelimit", "retry-after")
+
+
+@dataclass(frozen=True)
+class FootballApiFailure:
+    retry_after: int | None = None
+    was_rate_limited: bool = False
+
+
+_last_football_api_failure: FootballApiFailure | None = None
+
+
+class FootballApiRateLimiter:
+    """Enforce a minimum gap between football-data.org v4 API requests."""
+
+    _lock = threading.Lock()
+    _last_request_monotonic: float | None = None
+
+    @classmethod
+    def acquire(cls, url: str) -> None:
+        with cls._lock:
+            now = time.monotonic()
+            if cls._last_request_monotonic is not None:
+                wait_seconds = (
+                    FOOTBALL_API_MIN_INTERVAL.total_seconds()
+                    - (now - cls._last_request_monotonic)
+                )
+                if wait_seconds > 0:
+                    logging.debug(
+                        "Football API rate limit: waiting %.2fs before GET %s",
+                        wait_seconds,
+                        url,
+                    )
+                    time.sleep(wait_seconds)
+            cls._last_request_monotonic = time.monotonic()
+
+
+class DailyApiRetryScheduler:
+    """Schedule daily football API tasks with exponential backoff until success."""
+
+    def __init__(self, scheduler) -> None:
+        self.scheduler = scheduler
+        self._retry_scheduled: set[str] = set()
+        self._attempts: dict[str, int] = {}
+
+    def on_success(self, task_name: str) -> None:
+        self._attempts[task_name] = 1
+        self._retry_scheduled.discard(task_name)
+
+    def schedule(
+        self,
+        task_name: str,
+        callback: Callable[[], None],
+        retry_after: int | None = None,
+    ) -> None:
+        if task_name in self._retry_scheduled:
+            return
+
+        attempt = self._attempts.get(task_name, 1)
+        delay = daily_api_retry_delay(attempt, retry_after)
+        self._retry_scheduled.add(task_name)
+        self._attempts[task_name] = attempt + 1
+
+        logging.debug(
+            "scheduling %s retry attempt=%s delay=%ss",
+            task_name,
+            attempt,
+            int(delay.total_seconds()),
+        )
+
+        def run_retry() -> None:
+            self._retry_scheduled.discard(task_name)
+            callback()
+
+        self.scheduler.schedule_task(
+            datetime.now(timezone.utc) + delay,
+            run_retry,
+        )
 
 
 def is_football_data_url(url: str) -> bool:
@@ -29,19 +110,40 @@ def football_api_rate_limit_headers(headers) -> dict[str, str]:
     }
 
 
+def parse_retry_after(headers) -> int | None:
+    value = headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def daily_api_retry_delay(attempt: int, retry_after: int | None = None) -> timedelta:
+    index = min(max(attempt - 1, 0), len(_DAILY_BACKOFF_SECONDS) - 1)
+    delay_seconds = _DAILY_BACKOFF_SECONDS[index]
+    if retry_after is not None:
+        delay_seconds = max(delay_seconds, retry_after)
+    return timedelta(seconds=delay_seconds)
+
+
+def get_last_football_api_failure() -> FootballApiFailure | None:
+    return _last_football_api_failure
+
+
 def get_request(url: str, session: Session) -> Response | None:
     """
     Perform a GET request to the specified URL using the provided session.
     Returns the response if successful, or None if an error occurs.
     """
-    is_football_api = is_football_data_url(url)
-    # TODO: Remove this block when FOOTBALL_API_ENABLED is True (see flag above).
-    if is_football_api and not FOOTBALL_API_ENABLED:
-        logging.warning("Football API disabled; skipping GET %s", url)
-        return None
+    global _last_football_api_failure
+    _last_football_api_failure = None
 
+    is_football_api = is_football_data_url(url)
     if is_football_api:
-        logging.info("Football API request: GET %s", url)
+        FootballApiRateLimiter.acquire(url)
+        logging.debug("Football API request: GET %s", url)
 
     try:
         response = session.get(url, timeout=5)
@@ -51,7 +153,12 @@ def get_request(url: str, session: Session) -> Response | None:
 
         if response.status_code == status_codes.codes.too_many_requests:
             rate_headers = football_api_rate_limit_headers(response.headers)
-            logging.error(
+            retry_after = parse_retry_after(response.headers)
+            _last_football_api_failure = FootballApiFailure(
+                retry_after=retry_after,
+                was_rate_limited=True,
+            )
+            logging.warning(
                 "Football API rate limited (429): GET %s Retry-After=%s headers=%s",
                 url,
                 response.headers.get("Retry-After", "unknown"),
@@ -95,34 +202,3 @@ def get_request(url: str, session: Session) -> Response | None:
             logging.error("An error occurred: %s", req_err)
 
     return None
-
-
-def get_football_data_http(url: str, **kwargs) -> Response | None:
-    """GET a football-data.org URL outside the shared session (e.g. crest assets)."""
-    # TODO: Remove this block when FOOTBALL_API_ENABLED is True (see flag above).
-    if is_football_data_url(url) and not FOOTBALL_API_ENABLED:
-        logging.warning("Football API disabled; skipping GET %s", url)
-        return None
-
-    if is_football_data_url(url):
-        logging.info("Football API request: GET %s", url)
-
-    try:
-        response = requests.get(url, **kwargs)
-    except RequestException as error:
-        if is_football_data_url(url):
-            logging.error("Football API request error: GET %s %s", url, error)
-        else:
-            logging.error("Request error: GET %s %s", url, error)
-        return None
-
-    if is_football_data_url(url):
-        logging.info(
-            "Football API GET %s -> %s (%.0f ms) rate=%s",
-            url,
-            response.status_code,
-            response.elapsed.total_seconds() * 1000 if response.elapsed else 0.0,
-            football_api_rate_limit_headers(response.headers) or "n/a",
-        )
-
-    return response

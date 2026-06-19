@@ -28,7 +28,12 @@ from .models import (
 
 from task_scheduler import TaskScheduler
 
-from utils.network_utils import get_request
+from utils.network_utils import (
+    FOOTBALL_API_MIN_INTERVAL,
+    DailyApiRetryScheduler,
+    get_last_football_api_failure,
+    get_request,
+)
 
 from .push_notifications import (
     FOOTBALL_WEBAPP_ORIGIN,
@@ -36,8 +41,7 @@ from .push_notifications import (
     send_push_notification,
 )
 
-UPDATE_DELTA = timedelta(seconds=4)
-
+UPDATE_DELTA = FOOTBALL_API_MIN_INTERVAL
 
 class TeamStatus(Enum):
     winning = auto()
@@ -133,8 +137,9 @@ class TableUpdate:
 
 
 class Football:
-    def __init__(self, scheduler: TaskScheduler) -> None:
+    def __init__(self, scheduler: TaskScheduler, daily_retry: DailyApiRetryScheduler) -> None:
         self.scheduler = scheduler
+        self.daily_retry = daily_retry
 
         # Get the current date and time
         current_date_utc = datetime.now(timezone.utc).date()
@@ -170,25 +175,41 @@ class Football:
             timedelta(days=1),
         )
 
-        # Get the table now
-        self.get_table()
+        self.scheduler.schedule_task(
+            next_match_update_time + timedelta(minutes=1),
+            self.get_todays_matches,
+            timedelta(days=1),
+        )
 
-        # Get this seasons matches now
-        self.get_season_matches()
-
-        # Get todays matches now
-        self.get_todays_matches()
+    def _schedule_daily_retry(self, task_name: str, callback) -> None:
+        failure = get_last_football_api_failure()
+        retry_after = failure.retry_after if failure else None
+        self.daily_retry.schedule(task_name, callback, retry_after)
 
     def get_season_matches(self) -> None:
-        self.get_matches_between_dates(datetime(2025, 7, 1), datetime(2026, 6, 30))
+        if (
+            self.get_matches_between_dates(datetime(2025, 7, 1), datetime(2026, 6, 30))
+            is not None
+        ):
+            self.daily_retry.on_success("get_season_matches")
+        else:
+            self._schedule_daily_retry("get_season_matches", self.get_season_matches)
 
     def get_todays_matches(self) -> None:
         matches = self.get_matches_between_dates(
             datetime.now(timezone.utc), datetime.now(timezone.utc)
         )
 
-        if matches is not None:
-            for match in matches:
+        if matches is None:
+            logging.warning("Live match update failed; next poll at normal interval")
+            self.update_live_table(None)
+            self.scheduler.schedule_task(
+                datetime.now(timezone.utc) + UPDATE_DELTA,
+                self.get_todays_matches,
+            )
+            return
+
+        for match in matches:
                 logging.debug(
                     f'{match.home_team.short_name:14} {match.score.full_time.home if match.score.full_time.home is not None else "-":>2} {match.score.full_time.away if match.score.full_time.away is not None else "-":>2} {match.away_team.short_name:14} {match.status}'
                 )
@@ -291,53 +312,47 @@ class Football:
 
         return match_list
 
-    def schedule_live_updates(self, matches: list[Match] | None) -> None:
-        if matches is not None:
-            if any(
+    def schedule_live_updates(self, matches: list[Match]) -> None:
+        if any(
                 match.status
                 in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended]
                 for match in matches
-            ):
-                logging.debug("At least one match is in play")
+        ):
+            logging.debug("At least one match is in play")
 
-                self.scheduler.schedule_task(
-                    datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches
-                )
-
-            elif any(
-                match.status
-                in [MatchStatus.awarded, MatchStatus.scheduled, MatchStatus.timed]
-                for match in matches
-            ):
-                # Remove postponed and cancelled matches from the calculation of next match time
-                todays_matches = [
-                    match
-                    for match in matches
-                    if match.status
-                    not in [MatchStatus.postponed, MatchStatus.cancelled]
-                ]
-
-                # Find the next match time
-                next_match_utc = min(
-                    match.utc_date
-                    for match in todays_matches
-                    if match.utc_date
-                    > datetime.now(timezone.utc) - timedelta(minutes=100)
-                )
-
-                if next_match_utc < datetime.now(timezone.utc):
-                    next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
-
-                logging.debug(f"Next match time {next_match_utc}")
-
-                self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
-            else:
-                logging.debug("No more matches today")
-        else:
-            logging.error("Rescheduling Match Update Due to Error")
             self.scheduler.schedule_task(
                 datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches
             )
+
+        elif any(
+            match.status
+            in [MatchStatus.awarded, MatchStatus.scheduled, MatchStatus.timed]
+            for match in matches
+        ):
+            # Remove postponed and cancelled matches from the calculation of next match time
+            todays_matches = [
+                match
+                for match in matches
+                if match.status
+                not in [MatchStatus.postponed, MatchStatus.cancelled]
+            ]
+
+            # Find the next match time
+            next_match_utc = min(
+                match.utc_date
+                for match in todays_matches
+                if match.utc_date
+                > datetime.now(timezone.utc) - timedelta(minutes=100)
+            )
+
+            if next_match_utc < datetime.now(timezone.utc):
+                next_match_utc = datetime.now(timezone.utc) + UPDATE_DELTA
+
+            logging.debug(f"Next match time {next_match_utc}")
+
+            self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+        else:
+            logging.debug("No more matches today")
 
     def get_table(self) -> None:
         logging.debug("Getting Table")
@@ -353,43 +368,49 @@ class Football:
             requests_session
         )
 
-        if response is not None:
-            logging.debug("Table Downloaded")
+        if response is None:
+            self._schedule_daily_retry("get_table", self.get_table)
+            return
+
+        logging.debug("Table Downloaded")
+        try:
+            table = Table.model_validate_json(response.content)
+        except ValidationError as e:
+            logging.error(f"Failed to Parse Table: {response.content}")
+            logging.error(e.json(indent=2))
+            self._schedule_daily_retry("get_table", self.get_table)
+            return
+
+        logging.debug(f"Season Start: {table.season.start_date}")
+        logging.debug(f"Season End  : {table.season.end_date}")
+
+        # Update the database with the table
+        if pl_table_collection is not None:
+            logging.debug("Writing Table")
             try:
-                table = Table.model_validate_json(response.content)
-            except ValidationError as e:
-                    logging.error(f"Failed to Parse Table: {response.content}")
-                    logging.error(e.json(indent=2))
-                    return
-
-            logging.debug(f"Season Start: {table.season.start_date}")
-            logging.debug(f"Season End  : {table.season.end_date}")
-
-            # Update the database with the table
-            if pl_table_collection is not None:
-                logging.debug("Writing Table")
-                try:
-                    logging.debug("Creating Table Operations")
-                    operations = [
-                        UpdateOne(
-                            {"team.id": table_entry.team.id},
-                            {"$set": table_entry.model_dump()},
-                            upsert=True,
-                        )
-                        for table_entry in table.standings[0].table
-                    ]
-                    pl_table_collection.bulk_write(operations)
-                except:
-                    logging.error("Failed to Write Table to DB")
-                else:
-                    logging.debug("Table Written")
+                logging.debug("Creating Table Operations")
+                operations = [
+                    UpdateOne(
+                        {"team.id": table_entry.team.id},
+                        {"$set": table_entry.model_dump()},
+                        upsert=True,
+                    )
+                    for table_entry in table.standings[0].table
+                ]
+                pl_table_collection.bulk_write(operations)
+            except:
+                logging.error("Failed to Write Table to DB")
             else:
-                logging.error("No Database Connection")
+                logging.debug("Table Written")
+        else:
+            logging.error("No Database Connection")
 
-            for table_entry in table.standings[0].table:
-                logging.debug(
-                    f"{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}"
-                )
+        for table_entry in table.standings[0].table:
+            logging.debug(
+                f"{table_entry.position:02} {table_entry.team.short_name:14} {table_entry.points}"
+            )
+
+        self.daily_retry.on_success("get_table")
 
     def update_live_table(self, matches: list[Match] | None) -> None:
         table_dict: dict[str, LiveTableItem] = {}

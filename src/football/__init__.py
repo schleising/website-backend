@@ -7,15 +7,11 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from database import BackendDatabase
-from utils.network_utils import FOOTBALL_API_ENABLED, football_api_rate_limit_headers
+from utils.network_utils import football_api_rate_limit_headers
 
 logger = logging.getLogger(__name__)
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
-
-if not FOOTBALL_API_ENABLED:
-    # TODO: Remove when FOOTBALL_API_ENABLED is True in utils/network_utils.py.
-    logger.warning("Football API calls are DISABLED (FOOTBALL_API_ENABLED=False)")
 
 
 def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -> requests.Response:
@@ -26,7 +22,7 @@ def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -
     rate_headers = football_api_rate_limit_headers(response.headers)
     method = response.request.method if response.request is not None else "GET"
 
-    logger.info(
+    logger.debug(
         "Football API %s %s -> %s (%.0f ms) rate=%s",
         method,
         response.url,
@@ -56,7 +52,7 @@ wc_standings_collection = mongo_db.get_collection('wc_standings_2026')
 live_wc_standings_collection = mongo_db.get_collection('live_wc_standings_2026')
 football_push = mongo_db.get_collection('football_push_subscriptions')
 
-# Try to read the api key from the secret file
+# Try to read the api key from the secret file
 try:
     with open(Path('src/secrets/football_api_token.txt'), 'r', encoding='utf-8') as secretFile:
         api_key = secretFile.read().strip()
@@ -68,8 +64,8 @@ except:
 # Create a requests session
 requests_session = requests.Session()
 
-# Add a retry strategy to the session
-adapter = HTTPAdapter(max_retries=3)
+# No urllib3 retries — football API spacing and retries are handled in application code.
+adapter = HTTPAdapter(max_retries=0)
 requests_session.mount('https://', adapter)
 
 # Add headers to the session

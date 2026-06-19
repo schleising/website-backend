@@ -6,14 +6,18 @@ from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from typing import TypeVar
 from pathlib import Path
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 from pymongo.operations import UpdateOne
 
 from task_scheduler import TaskScheduler
-from utils.network_utils import get_football_data_http, get_request
+from utils.network_utils import (
+    FOOTBALL_API_MIN_INTERVAL,
+    DailyApiRetryScheduler,
+    get_last_football_api_failure,
+    get_request,
+)
 
 from . import (
     live_wc_standings_collection,
@@ -35,10 +39,9 @@ WC_API_BASE = "https://api.football-data.org/v4/competitions/WC"
 WC_TOURNAMENT_START = datetime(2026, 6, 11, tzinfo=timezone.utc)
 WC_TOURNAMENT_END = datetime(2026, 7, 19, 23, 59, 59, tzinfo=timezone.utc)
 WC_GROUP_STAGE = "GROUP_STAGE"
-WC_UPDATE_DELTA = timedelta(seconds=4)
+WC_UPDATE_DELTA = FOOTBALL_API_MIN_INTERVAL
 WC_TOURNAMENT_TZ = ZoneInfo("America/Los_Angeles")
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
-WC_CREST_ALLOWED_HOSTS = frozenset({"crests.football-data.org"})
 
 
 def _wc_tournament_today(*, now: datetime | None = None) -> date:
@@ -84,13 +87,11 @@ def _next_wc_tournament_midnight_utc(*, now: datetime | None = None) -> datetime
     return next_midnight_local.astimezone(timezone.utc)
 
 
-class CompetitionTeamsResponse(BaseModel):
-    teams: list[Team] = Field(default_factory=list)
-
 
 class WorldCup:
-    def __init__(self, scheduler: TaskScheduler) -> None:
+    def __init__(self, scheduler: TaskScheduler, daily_retry: DailyApiRetryScheduler) -> None:
         self.scheduler = scheduler
+        self.daily_retry = daily_retry
         self.edition = WC_EDITION
 
         next_sync_time = _next_wc_tournament_midnight_utc()
@@ -111,10 +112,10 @@ class WorldCup:
             timedelta(days=1),
         )
 
-        self.sync_matches()
-        self.sync_standings()
-        self.sync_teams_and_crests()
-        self.get_todays_matches()
+    def _schedule_daily_retry(self, task_name: str, callback) -> None:
+        failure = get_last_football_api_failure()
+        retry_after = failure.retry_after if failure else None
+        self.daily_retry.schedule(task_name, callback, retry_after)
 
     def sync_matches(self) -> None:
         logging.debug("Getting World Cup matches")
@@ -131,17 +132,20 @@ class WorldCup:
 
         if response is None:
             logging.error("Failed to download World Cup matches")
+            self._schedule_daily_retry("sync_matches", self.sync_matches)
             return
 
         try:
             matches = Matches.model_validate_json(response.content)
         except ValidationError as error:
             logging.error("Failed to parse World Cup matches: %s", error)
+            self._schedule_daily_retry("sync_matches", self.sync_matches)
             return
 
         self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
+        self.daily_retry.on_success("sync_matches")
 
     def _matches_on_tournament_today(self, matches: list[Match]) -> list[Match]:
         tournament_today = _wc_tournament_today()
@@ -176,6 +180,7 @@ class WorldCup:
         if response is None:
             logging.error("Failed to download World Cup standings")
             self._write_standings_operations(self._build_standings_operations_from_matches())
+            self._schedule_daily_retry("sync_standings", self.sync_standings)
             return
 
         try:
@@ -183,6 +188,7 @@ class WorldCup:
         except ValidationError as error:
             logging.error("Failed to parse World Cup standings: %s", error)
             self._write_standings_operations(self._build_standings_operations_from_matches())
+            self._schedule_daily_retry("sync_standings", self.sync_standings)
             return
 
         operations: list[UpdateOne] = []
@@ -212,6 +218,7 @@ class WorldCup:
             operations = self._build_standings_operations_from_matches()
 
         self._write_standings_operations(operations)
+        self.daily_retry.on_success("sync_standings")
 
     def _write_standings_operations(self, operations: list[UpdateOne]) -> None:
         if len(operations) == 0:
@@ -328,63 +335,6 @@ class WorldCup:
 
         return operations
 
-    def sync_teams_and_crests(self) -> None:
-        logging.debug("Getting World Cup teams")
-
-        response = get_request(
-            f"{WC_API_BASE}/teams?season={self.edition}",
-            requests_session,
-        )
-
-        if response is None:
-            logging.error("Failed to download World Cup teams")
-            return
-
-        try:
-            teams_response = CompetitionTeamsResponse.model_validate_json(response.content)
-        except ValidationError as error:
-            logging.error("Failed to parse World Cup teams: %s", error)
-            return
-
-        WC_CREST_DIR.mkdir(parents=True, exist_ok=True)
-
-        for team in teams_response.teams:
-            if team.id is None:
-                continue
-            self._download_team_crest(team)
-
-    def _download_team_crest(self, team: Team) -> None:
-        crest_url = (team.crest or "").strip()
-        if crest_url == "":
-            return
-
-        parsed = urlparse(crest_url)
-        if parsed.scheme not in {"http", "https"} or parsed.hostname not in WC_CREST_ALLOWED_HOSTS:
-            logging.warning(
-                "Rejected World Cup crest URL for team %s: %s",
-                team.id,
-                crest_url,
-            )
-            return
-
-        suffix = Path(parsed.path).suffix.lower() or ".png"
-        if suffix not in {".png", ".svg"}:
-            suffix = ".png"
-
-        destination = WC_CREST_DIR / f"{team.id}{suffix}"
-        if destination.exists():
-            return
-
-        try:
-            crest_response = get_football_data_http(crest_url, timeout=20)
-            if crest_response is None:
-                return
-            crest_response.raise_for_status()
-            destination.write_bytes(crest_response.content)
-            logging.debug("Saved World Cup crest for team %s", team.id)
-        except Exception as error:
-            logging.warning("Failed to download crest for team %s: %s", team.id, error)
-
     def _normalise_match_times(self, matches: list[Match]) -> None:
         for match in matches:
             if match.utc_date.time() == time(hour=0):
@@ -466,32 +416,29 @@ class WorldCup:
         )
 
         if response is None:
-            logging.error("Failed to download today's World Cup matches")
+            logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
-            self.schedule_live_updates(None)
+            self.scheduler.schedule_task(
+                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
+                self.get_todays_matches,
+            )
             return
 
         try:
             matches = Matches.model_validate_json(response.content)
         except ValidationError as error:
             logging.error("Failed to parse today's World Cup matches: %s", error)
+            logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
-            self.schedule_live_updates(None)
+            self.scheduler.schedule_task(
+                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
+                self.get_todays_matches,
+            )
             return
 
         self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
-
-        todays_group_matches = [
-            match
-            for match in matches.matches
-            if match.stage == WC_GROUP_STAGE
-            and match.group is not None
-            and _match_on_wc_tournament_day(match, tournament_today)
-        ]
-        if any(match.status.has_finished for match in todays_group_matches):
-            self.sync_standings()
 
         self.update_live_standings(matches.matches)
 
@@ -702,9 +649,8 @@ class WorldCup:
         logging.debug("Next World Cup live poll scheduled for %s", next_poll)
         self.scheduler.schedule_task(next_poll, self.get_todays_matches)
 
-    def schedule_live_updates(self, matches: list[Match] | None) -> None:
-        if matches is not None:
-            if any(
+    def schedule_live_updates(self, matches: list[Match]) -> None:
+        if any(
                 match.status
                 in [
                     MatchStatus.in_play,
@@ -712,55 +658,48 @@ class WorldCup:
                     MatchStatus.suspended,
                 ]
                 for match in matches
-            ):
-                logging.debug("At least one World Cup match is in play")
-                self.scheduler.schedule_task(
-                    datetime.now(timezone.utc) + WC_UPDATE_DELTA,
-                    self.get_todays_matches,
-                )
-                return
-
-            if any(
-                match.status
-                in [
-                    MatchStatus.awarded,
-                    MatchStatus.scheduled,
-                    MatchStatus.timed,
-                ]
-                for match in matches
-            ):
-                todays_matches = [
-                    match
-                    for match in matches
-                    if match.status
-                    not in [MatchStatus.postponed, MatchStatus.cancelled]
-                ]
-
-                if len(todays_matches) == 0:
-                    logging.debug("No more World Cup matches today")
-                    self._schedule_next_tournament_poll(datetime.now(timezone.utc))
-                    return
-
-                next_match_utc = min(
-                    match.utc_date
-                    for match in todays_matches
-                    if match.utc_date
-                    > datetime.now(timezone.utc) - timedelta(minutes=100)
-                )
-
-                if next_match_utc < datetime.now(timezone.utc):
-                    next_match_utc = datetime.now(timezone.utc) + WC_UPDATE_DELTA
-
-                logging.debug("Next World Cup match time %s", next_match_utc)
-                self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
-                return
-
-            logging.debug("No more World Cup matches today")
-            self._schedule_next_tournament_poll(datetime.now(timezone.utc))
+        ):
+            logging.debug("At least one World Cup match is in play")
+            self.scheduler.schedule_task(
+                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
+                self.get_todays_matches,
+            )
             return
 
-        logging.error("Rescheduling World Cup match update due to error")
-        self.scheduler.schedule_task(
-            datetime.now(timezone.utc) + WC_UPDATE_DELTA,
-            self.get_todays_matches,
-        )
+        if any(
+            match.status
+            in [
+                MatchStatus.awarded,
+                MatchStatus.scheduled,
+                MatchStatus.timed,
+            ]
+            for match in matches
+        ):
+            todays_matches = [
+                match
+                for match in matches
+                if match.status
+                not in [MatchStatus.postponed, MatchStatus.cancelled]
+            ]
+
+            if len(todays_matches) == 0:
+                logging.debug("No more World Cup matches today")
+                self._schedule_next_tournament_poll(datetime.now(timezone.utc))
+                return
+
+            next_match_utc = min(
+                match.utc_date
+                for match in todays_matches
+                if match.utc_date
+                > datetime.now(timezone.utc) - timedelta(minutes=100)
+            )
+
+            if next_match_utc < datetime.now(timezone.utc):
+                next_match_utc = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+
+            logging.debug("Next World Cup match time %s", next_match_utc)
+            self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+            return
+
+        logging.debug("No more World Cup matches today")
+        self._schedule_next_tournament_poll(datetime.now(timezone.utc))
