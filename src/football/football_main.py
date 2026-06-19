@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timezone
 from threading import Event
 import logging
@@ -7,6 +8,25 @@ from utils.network_utils import DailyApiRetryScheduler, FOOTBALL_API_MIN_INTERVA
 
 from . import Football
 from .world_cup import WorldCup
+
+logger = logging.getLogger(__name__)
+
+
+def _wrap_bootstrap_task(
+    task: Callable[[], None],
+    *,
+    remaining: list[int],
+) -> Callable[[], None]:
+    def wrapped() -> None:
+        try:
+            task()
+        finally:
+            remaining[0] -= 1
+            if remaining[0] == 0:
+                logger.info("Football API startup requests completed")
+
+    wrapped.__name__ = task.__name__
+    return wrapped
 
 
 def schedule_football_bootstrap(
@@ -23,8 +43,12 @@ def schedule_football_bootstrap(
         world_cup.sync_standings,
         world_cup.get_todays_matches,
     ]
+    remaining = [len(bootstrap_tasks)]
     for index, task in enumerate(bootstrap_tasks):
-        scheduler.schedule_task(now + FOOTBALL_API_MIN_INTERVAL * index, task)
+        scheduler.schedule_task(
+            now + FOOTBALL_API_MIN_INTERVAL * index,
+            _wrap_bootstrap_task(task, remaining=remaining),
+        )
 
 
 def football_loop(terminate_event: Event, log_level: int) -> None:
