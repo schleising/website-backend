@@ -29,7 +29,6 @@ def schedule_football_bootstrap(
 
 def football_loop(terminate_event: Event, log_level: int) -> None:
     logging.basicConfig(format='Football: %(asctime)s - %(levelname)s - %(message)s', level=log_level)
-    logging.getLogger().setLevel(log_level)
 
     scheduler = TaskScheduler()
     daily_retry = DailyApiRetryScheduler(scheduler)

@@ -17,6 +17,8 @@ from requests.exceptions import (
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
 FOOTBALL_DATA_HOST = "football-data.org"
 FOOTBALL_API_MIN_INTERVAL = timedelta(seconds=4)
+# Temporary — set False once football-data.org rate limiting is verified.
+FOOTBALL_API_REQUEST_LOGGING = False
 _DAILY_BACKOFF_SECONDS = (4, 8, 16, 32, 60)
 _RATE_LIMIT_HEADER_PREFIXES = ("x-request", "x-ratelimit", "retry-after")
 
@@ -28,6 +30,12 @@ class FootballApiFailure:
 
 
 _last_football_api_failure: FootballApiFailure | None = None
+
+
+def log_football_api_traffic(message: str, *args) -> None:
+    """Log routine football-data.org traffic when FOOTBALL_API_REQUEST_LOGGING is enabled."""
+    if FOOTBALL_API_REQUEST_LOGGING:
+        logging.info(message, *args)
 
 
 class FootballApiRateLimiter:
@@ -46,7 +54,7 @@ class FootballApiRateLimiter:
                     - (now - cls._last_request_monotonic)
                 )
                 if wait_seconds > 0:
-                    logging.debug(
+                    log_football_api_traffic(
                         "Football API rate limit: waiting %.2fs before GET %s",
                         wait_seconds,
                         url,
@@ -81,7 +89,7 @@ class DailyApiRetryScheduler:
         self._retry_scheduled.add(task_name)
         self._attempts[task_name] = attempt + 1
 
-        logging.debug(
+        log_football_api_traffic(
             "scheduling %s retry attempt=%s delay=%ss",
             task_name,
             attempt,
@@ -143,7 +151,7 @@ def get_request(url: str, session: Session) -> Response | None:
     is_football_api = is_football_data_url(url)
     if is_football_api:
         FootballApiRateLimiter.acquire(url)
-        logging.debug("Football API request: GET %s", url)
+        log_football_api_traffic("Football API request: GET %s", url)
 
     try:
         response = session.get(url, timeout=5)

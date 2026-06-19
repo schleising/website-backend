@@ -7,7 +7,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from database import BackendDatabase
-from utils.network_utils import football_api_rate_limit_headers
+from utils.network_utils import football_api_rate_limit_headers, log_football_api_traffic
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -
     rate_headers = football_api_rate_limit_headers(response.headers)
     method = response.request.method if response.request is not None else "GET"
 
-    logger.debug(
+    log_football_api_traffic(
         "Football API %s %s -> %s (%.0f ms) rate=%s",
         method,
         response.url,
