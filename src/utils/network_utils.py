@@ -190,11 +190,11 @@ def get_request(url: str, session: Session) -> Response | None:
             logging.error("Football API request timed out: GET %s", url)
         else:
             logging.error("Request to %s timed out.", url)
-    except ConnectionError:
+    except ConnectionError as error:
         if is_football_api:
-            logging.error("Football API connection error: GET %s", url)
+            logging.error("Football API connection error: GET %s %s", url, error)
         else:
-            logging.error("Connection error occurred while trying to reach %s.", url)
+            logging.error("Connection error occurred while trying to reach %s: %s", url, error)
     except HTTPError as http_err:
         status = http_err.response.status_code if http_err.response is not None else "unknown"
         if is_football_api:
