@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from database import BackendDatabase
 from utils.network_utils import football_api_rate_limit_headers, log_football_api_traffic
@@ -64,8 +65,17 @@ except:
 # Create a requests session
 requests_session = requests.Session()
 
-# No urllib3 retries — football API spacing and retries are handled in application code.
-adapter = HTTPAdapter(max_retries=0)
+# Retry TCP/TLS connect and read failures only — not HTTP status codes (429 handled in get_request).
+_football_api_retry = Retry(
+    total=3,
+    connect=2,
+    read=2,
+    redirect=0,
+    status=0,
+    backoff_factor=0.5,
+    allowed_methods=["GET"],
+)
+adapter = HTTPAdapter(max_retries=_football_api_retry)
 requests_session.mount('https://', adapter)
 
 # Add headers to the session
