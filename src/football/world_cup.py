@@ -384,6 +384,35 @@ class WorldCup:
         wc_match_collection.bulk_write(operations)
         logging.debug("Wrote %s World Cup matches", len(operations))
 
+    def _any_group_matches_newly_finished(
+        self, matches: list[Match], tournament_today: date
+    ) -> bool:
+        if wc_match_collection is None:
+            return False
+
+        for match in matches:
+            if (
+                match.stage != WC_GROUP_STAGE
+                or match.group is None
+                or not _match_on_wc_tournament_day(match, tournament_today)
+                or not match.status.has_finished
+            ):
+                continue
+
+            previous_document = wc_match_collection.find_one({"id": match.id})
+            if previous_document is None:
+                return True
+
+            try:
+                previous_match = Match.model_validate(previous_document)
+            except ValidationError:
+                return True
+
+            if not previous_match.status.has_finished:
+                return True
+
+        return False
+
     def get_todays_matches(self) -> None:
         now = datetime.now(timezone.utc)
         tournament_today = _wc_tournament_today(now=now)
@@ -423,8 +452,16 @@ class WorldCup:
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
+        newly_finished_group_match = self._any_group_matches_newly_finished(
+            matches.matches, tournament_today
+        )
+
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
+
+        if newly_finished_group_match:
+            logging.debug("World Cup group match finished; syncing standings")
+            self.sync_standings()
 
         self.update_live_standings(matches.matches)
 
