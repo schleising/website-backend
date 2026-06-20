@@ -78,6 +78,9 @@ _football_api_retry = Retry(
 adapter = HTTPAdapter(max_retries=_football_api_retry)
 requests_session.mount('https://', adapter)
 
+# urllib3 logs each connect/read retry at WARNING; failures are handled by Retry or get_request().
+logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
+
 # Add headers to the session
 requests_session.headers.update({
     'X-Auth-Token': api_key,
