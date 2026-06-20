@@ -38,6 +38,55 @@ def log_football_api_traffic(message: str, *args) -> None:
         logging.info(message, *args)
 
 
+def log_live_poll_period_started(competition: str) -> None:
+    logging.info("%s live match polling period started", competition)
+
+
+def log_live_poll_period_finished(competition: str) -> None:
+    logging.info("%s live match polling period finished", competition)
+
+
+def log_live_poll_scheduled(competition: str, poll_at: datetime) -> None:
+    logging.info("%s live match poll scheduled for %s", competition, poll_at.isoformat())
+
+
+class LivePollPeriodTracker:
+    """Track a live polling window from kickoff through full time (not each API request)."""
+
+    def __init__(self, competition: str) -> None:
+        self.competition = competition
+        self._active = False
+
+    def update(
+        self,
+        *,
+        in_play: bool,
+        upcoming: bool,
+        next_poll_at: datetime | None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        poll_at = next_poll_at
+        if poll_at is not None and poll_at.tzinfo is None:
+            poll_at = poll_at.replace(tzinfo=timezone.utc)
+        should_be_active = in_play or (
+            upcoming
+            and poll_at is not None
+            and poll_at <= now + FOOTBALL_API_MIN_INTERVAL
+        )
+        if should_be_active:
+            if not self._active:
+                log_live_poll_period_started(self.competition)
+                self._active = True
+        elif self._active:
+            log_live_poll_period_finished(self.competition)
+            self._active = False
+
+    def end_if_active(self) -> None:
+        if self._active:
+            log_live_poll_period_finished(self.competition)
+            self._active = False
+
+
 class FootballApiRateLimiter:
     """Enforce a minimum gap between football-data.org v4 API requests."""
 

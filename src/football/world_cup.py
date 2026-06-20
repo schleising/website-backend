@@ -15,8 +15,10 @@ from task_scheduler import TaskScheduler
 from utils.network_utils import (
     FOOTBALL_API_MIN_INTERVAL,
     DailyApiRetryScheduler,
+    LivePollPeriodTracker,
     get_last_football_api_failure,
     get_request,
+    log_live_poll_scheduled,
 )
 
 from . import (
@@ -93,6 +95,7 @@ class WorldCup:
         self.scheduler = scheduler
         self.daily_retry = daily_retry
         self.edition = WC_EDITION
+        self._live_poll_period = LivePollPeriodTracker("WC")
 
         next_sync_time = _next_wc_tournament_midnight_utc()
 
@@ -389,6 +392,7 @@ class WorldCup:
         tournament_end = WC_TOURNAMENT_END.astimezone(WC_TOURNAMENT_TZ).date()
 
         if tournament_today < tournament_start or tournament_today > tournament_end:
+            self._live_poll_period.end_if_active()
             self._schedule_next_tournament_poll(now)
             return
 
@@ -406,10 +410,9 @@ class WorldCup:
         if response is None:
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
-            self.scheduler.schedule_task(
-                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
-                self.get_todays_matches,
-            )
+            next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+            log_live_poll_scheduled("WC", next_poll_at)
+            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
         try:
@@ -418,10 +421,9 @@ class WorldCup:
             logging.error("Failed to parse today's World Cup matches: %s", error)
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
-            self.scheduler.schedule_task(
-                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
-                self.get_todays_matches,
-            )
+            next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+            log_live_poll_scheduled("WC", next_poll_at)
+            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
         self._notify_match_updates(matches.matches)
@@ -627,33 +629,27 @@ class WorldCup:
         return table_list
 
     def _schedule_next_tournament_poll(self, now: datetime) -> None:
+        self._live_poll_period.end_if_active()
         tournament_start = WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date()
         if _wc_tournament_today(now=now) < tournament_start:
             next_poll = WC_TOURNAMENT_START
         else:
             next_poll = _next_wc_tournament_midnight_utc(now=now)
 
-        logging.debug("Next World Cup live poll scheduled for %s", next_poll)
+        log_live_poll_scheduled("WC", next_poll)
         self.scheduler.schedule_task(next_poll, self.get_todays_matches)
 
     def schedule_live_updates(self, matches: list[Match]) -> None:
-        if any(
-                match.status
-                in [
-                    MatchStatus.in_play,
-                    MatchStatus.paused,
-                    MatchStatus.suspended,
-                ]
-                for match in matches
-        ):
-            logging.debug("At least one World Cup match is in play")
-            self.scheduler.schedule_task(
-                datetime.now(timezone.utc) + WC_UPDATE_DELTA,
-                self.get_todays_matches,
-            )
-            return
-
-        if any(
+        in_play = any(
+            match.status
+            in [
+                MatchStatus.in_play,
+                MatchStatus.paused,
+                MatchStatus.suspended,
+            ]
+            for match in matches
+        )
+        upcoming = any(
             match.status
             in [
                 MatchStatus.awarded,
@@ -661,7 +657,21 @@ class WorldCup:
                 MatchStatus.timed,
             ]
             for match in matches
-        ):
+        )
+
+        if in_play:
+            logging.debug("At least one World Cup match is in play")
+            next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+            self._live_poll_period.update(
+                in_play=True,
+                upcoming=upcoming,
+                next_poll_at=next_poll_at,
+            )
+            log_live_poll_scheduled("WC", next_poll_at)
+            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            return
+
+        if upcoming:
             todays_matches = [
                 match
                 for match in matches
@@ -685,6 +695,12 @@ class WorldCup:
                 next_match_utc = datetime.now(timezone.utc) + WC_UPDATE_DELTA
 
             logging.debug("Next World Cup match time %s", next_match_utc)
+            self._live_poll_period.update(
+                in_play=False,
+                upcoming=True,
+                next_poll_at=next_match_utc,
+            )
+            log_live_poll_scheduled("WC", next_match_utc)
             self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
             return
 

@@ -31,8 +31,10 @@ from task_scheduler import TaskScheduler
 from utils.network_utils import (
     FOOTBALL_API_MIN_INTERVAL,
     DailyApiRetryScheduler,
+    LivePollPeriodTracker,
     get_last_football_api_failure,
     get_request,
+    log_live_poll_scheduled,
 )
 
 from .push_notifications import (
@@ -140,6 +142,7 @@ class Football:
     def __init__(self, scheduler: TaskScheduler, daily_retry: DailyApiRetryScheduler) -> None:
         self.scheduler = scheduler
         self.daily_retry = daily_retry
+        self._live_poll_period = LivePollPeriodTracker("PL")
 
         # Get the current date and time
         current_date_utc = datetime.now(timezone.utc).date()
@@ -203,10 +206,9 @@ class Football:
         if matches is None:
             logging.warning("Live match update failed; next poll at normal interval")
             self.update_live_table(None)
-            self.scheduler.schedule_task(
-                datetime.now(timezone.utc) + UPDATE_DELTA,
-                self.get_todays_matches,
-            )
+            next_poll_at = datetime.now(timezone.utc) + UPDATE_DELTA
+            log_live_poll_scheduled("PL", next_poll_at)
+            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
         for match in matches:
@@ -313,22 +315,30 @@ class Football:
         return match_list
 
     def schedule_live_updates(self, matches: list[Match]) -> None:
-        if any(
-                match.status
-                in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended]
-                for match in matches
-        ):
-            logging.debug("At least one match is in play")
-
-            self.scheduler.schedule_task(
-                datetime.now(timezone.utc) + UPDATE_DELTA, self.get_todays_matches
-            )
-
-        elif any(
+        in_play = any(
+            match.status
+            in [MatchStatus.in_play, MatchStatus.paused, MatchStatus.suspended]
+            for match in matches
+        )
+        upcoming = any(
             match.status
             in [MatchStatus.awarded, MatchStatus.scheduled, MatchStatus.timed]
             for match in matches
-        ):
+        )
+
+        if in_play:
+            logging.debug("At least one match is in play")
+
+            next_poll_at = datetime.now(timezone.utc) + UPDATE_DELTA
+            self._live_poll_period.update(
+                in_play=True,
+                upcoming=upcoming,
+                next_poll_at=next_poll_at,
+            )
+            log_live_poll_scheduled("PL", next_poll_at)
+            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+
+        elif upcoming:
             # Remove postponed and cancelled matches from the calculation of next match time
             todays_matches = [
                 match
@@ -350,9 +360,16 @@ class Football:
 
             logging.debug(f"Next match time {next_match_utc}")
 
+            self._live_poll_period.update(
+                in_play=False,
+                upcoming=True,
+                next_poll_at=next_match_utc,
+            )
+            log_live_poll_scheduled("PL", next_match_utc)
             self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
         else:
             logging.debug("No more matches today")
+            self._live_poll_period.end_if_active()
 
     def get_table(self) -> None:
         logging.debug("Getting Table")
