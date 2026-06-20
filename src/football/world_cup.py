@@ -18,7 +18,6 @@ from utils.network_utils import (
     LivePollPeriodTracker,
     get_last_football_api_failure,
     get_request,
-    log_live_poll_scheduled,
 )
 
 from . import (
@@ -411,7 +410,6 @@ class WorldCup:
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
             next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
-            log_live_poll_scheduled("WC", next_poll_at)
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
@@ -422,7 +420,6 @@ class WorldCup:
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
             next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
-            log_live_poll_scheduled("WC", next_poll_at)
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
@@ -636,7 +633,7 @@ class WorldCup:
         else:
             next_poll = _next_wc_tournament_midnight_utc(now=now)
 
-        log_live_poll_scheduled("WC", next_poll)
+        self._live_poll_period.log_poll_period_scheduled(next_poll, in_play=False)
         self.scheduler.schedule_task(next_poll, self.get_todays_matches)
 
     def schedule_live_updates(self, matches: list[Match]) -> None:
@@ -667,7 +664,6 @@ class WorldCup:
                 upcoming=upcoming,
                 next_poll_at=next_poll_at,
             )
-            log_live_poll_scheduled("WC", next_poll_at)
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
@@ -700,7 +696,10 @@ class WorldCup:
                 upcoming=True,
                 next_poll_at=next_match_utc,
             )
-            log_live_poll_scheduled("WC", next_match_utc)
+            self._live_poll_period.log_poll_period_scheduled(
+                next_match_utc,
+                in_play=False,
+            )
             self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
             return
 

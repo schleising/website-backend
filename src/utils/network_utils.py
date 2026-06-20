@@ -47,7 +47,11 @@ def log_live_poll_period_finished(competition: str) -> None:
 
 
 def log_live_poll_scheduled(competition: str, poll_at: datetime) -> None:
-    logging.info("%s live match poll scheduled for %s", competition, poll_at.isoformat())
+    logging.info(
+        "%s live match polling period scheduled for %s",
+        competition,
+        poll_at.isoformat(),
+    )
 
 
 class LivePollPeriodTracker:
@@ -56,6 +60,27 @@ class LivePollPeriodTracker:
     def __init__(self, competition: str) -> None:
         self.competition = competition
         self._active = False
+
+    @staticmethod
+    def _aware(poll_at: datetime) -> datetime:
+        if poll_at.tzinfo is None:
+            return poll_at.replace(tzinfo=timezone.utc)
+        return poll_at
+
+    def log_poll_period_scheduled(
+        self,
+        poll_at: datetime,
+        *,
+        in_play: bool,
+    ) -> None:
+        """Log when the next polling period will begin — not each 4s in-play reschedule."""
+        if in_play:
+            return
+        poll_at = self._aware(poll_at)
+        now = datetime.now(timezone.utc)
+        if poll_at <= now + FOOTBALL_API_MIN_INTERVAL:
+            return
+        log_live_poll_scheduled(self.competition, poll_at)
 
     def update(
         self,
@@ -66,8 +91,8 @@ class LivePollPeriodTracker:
     ) -> None:
         now = datetime.now(timezone.utc)
         poll_at = next_poll_at
-        if poll_at is not None and poll_at.tzinfo is None:
-            poll_at = poll_at.replace(tzinfo=timezone.utc)
+        if poll_at is not None:
+            poll_at = self._aware(poll_at)
         should_be_active = in_play or (
             upcoming
             and poll_at is not None

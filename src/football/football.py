@@ -34,7 +34,6 @@ from utils.network_utils import (
     LivePollPeriodTracker,
     get_last_football_api_failure,
     get_request,
-    log_live_poll_scheduled,
 )
 
 from .push_notifications import (
@@ -207,7 +206,6 @@ class Football:
             logging.warning("Live match update failed; next poll at normal interval")
             self.update_live_table(None)
             next_poll_at = datetime.now(timezone.utc) + UPDATE_DELTA
-            log_live_poll_scheduled("PL", next_poll_at)
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
             return
 
@@ -335,7 +333,6 @@ class Football:
                 upcoming=upcoming,
                 next_poll_at=next_poll_at,
             )
-            log_live_poll_scheduled("PL", next_poll_at)
             self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
 
         elif upcoming:
@@ -365,7 +362,10 @@ class Football:
                 upcoming=True,
                 next_poll_at=next_match_utc,
             )
-            log_live_poll_scheduled("PL", next_match_utc)
+            self._live_poll_period.log_poll_period_scheduled(
+                next_match_utc,
+                in_play=False,
+            )
             self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
         else:
             logging.debug("No more matches today")
