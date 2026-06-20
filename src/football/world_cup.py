@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Sequence
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TypeVar
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -142,7 +142,6 @@ class WorldCup:
             self._schedule_daily_retry("sync_matches", self.sync_matches)
             return
 
-        self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
         self.daily_retry.on_success("sync_matches")
@@ -335,17 +334,6 @@ class WorldCup:
 
         return operations
 
-    def _normalise_match_times(self, matches: list[Match]) -> None:
-        for match in matches:
-            if match.utc_date.time() == time(hour=0):
-                match.utc_date = datetime(
-                    match.utc_date.year,
-                    match.utc_date.month,
-                    match.utc_date.day,
-                    15,
-                    tzinfo=ZoneInfo("Europe/London"),
-                ).astimezone(timezone.utc)
-
     def _world_cup_team_crest(self, team: Team) -> str:
         if team.id is None:
             return "/images/football/crests/unknown_team.svg"
@@ -436,7 +424,6 @@ class WorldCup:
             )
             return
 
-        self._normalise_match_times(matches.matches)
         self._notify_match_updates(matches.matches)
         self._write_matches(matches.matches)
 
