@@ -16,17 +16,43 @@ class TaskScheduler:
         # Initialise an empty list of tasks
         self.task_list: list[Task] = []
 
-    def schedule_task(self, time: datetime, function: Callable, interval: timedelta | None = None) -> bool:
-        # Ensure the task run time is stored in UTC
+    @staticmethod
+    def _utc_task_time(time: datetime) -> datetime:
         utc_time = time.astimezone(timezone.utc)
-
-        # If the task is in the past, set it to now so it runs immediately and any scheduling uses this as its basis
         if utc_time < datetime.now(timezone.utc):
             utc_time = datetime.now(timezone.utc)
+        return utc_time
 
-        # Add the task
+    def schedule_task(self, time: datetime, function: Callable, interval: timedelta | None = None) -> bool:
+        utc_time = self._utc_task_time(time)
         self.task_list.append(Task(utc_time, function, interval))
         logging.debug(f'Task added')
+        return True
+
+    def schedule_earlier_task(
+        self, time: datetime, function: Callable, interval: timedelta | None = None
+    ) -> bool:
+        """Schedule a task, keeping at most one pending task per callback.
+
+        If no task exists for ``function``, add one. If a task exists and the new
+        time is earlier, replace it. If the new time is equal or later, ignore.
+        """
+        utc_time = self._utc_task_time(time)
+
+        for index, task in enumerate(self.task_list):
+            if task.function is not function:
+                continue
+
+            if utc_time >= task.time:
+                logging.debug("Task ignored (existing task is earlier or equal)")
+                return False
+
+            self.task_list[index] = Task(utc_time, function, interval)
+            logging.debug("Task replaced with earlier time")
+            return True
+
+        self.task_list.append(Task(utc_time, function, interval))
+        logging.debug("Task added")
         return True
 
     def get_runnable_tasks(self) -> list[Task]:
@@ -42,7 +68,9 @@ class TaskScheduler:
                 # Check whether the task is periodic
                 if task.interval is not None:
                     # If so schedule the next iteration of the task
-                    self.schedule_task(task.time + task.interval, task.function, task.interval)
+                    self.schedule_earlier_task(
+                        task.time + task.interval, task.function, task.interval
+                    )
 
                 # Add the task to the list of runnable tasks
                 runnable_tasks.append(task)
@@ -62,5 +90,5 @@ class TaskScheduler:
             for task in task_list:
                 task.function()
 
-            # Sleep for a time
+            # Sleep for a time
             sleep(0.01)

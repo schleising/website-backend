@@ -18,7 +18,7 @@ FOOTBALL_DATA_API_HOST = "api.football-data.org"
 FOOTBALL_DATA_HOST = "football-data.org"
 FOOTBALL_API_MIN_INTERVAL = timedelta(seconds=4)
 # Temporary — set False once football-data.org rate limiting is verified.
-FOOTBALL_API_REQUEST_LOGGING = False
+FOOTBALL_API_REQUEST_LOGGING = True
 _DAILY_BACKOFF_SECONDS = (4, 8, 16, 32, 60)
 _RATE_LIMIT_HEADER_PREFIXES = ("x-request", "x-ratelimit", "retry-after")
 

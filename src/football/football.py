@@ -171,13 +171,7 @@ class Football:
         )
 
         # Schedule the check for todays matches one minute later
-        self.scheduler.schedule_task(
-            next_match_update_time + timedelta(minutes=1),
-            self.get_todays_matches,
-            timedelta(days=1),
-        )
-
-        self.scheduler.schedule_task(
+        self.scheduler.schedule_earlier_task(
             next_match_update_time + timedelta(minutes=1),
             self.get_todays_matches,
             timedelta(days=1),
@@ -206,7 +200,7 @@ class Football:
             logging.warning("Live match update failed; next poll at normal interval")
             self.update_live_table(None)
             next_poll_at = datetime.now(timezone.utc) + UPDATE_DELTA
-            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
             return
 
         for match in matches:
@@ -333,7 +327,7 @@ class Football:
                 upcoming=upcoming,
                 next_poll_at=next_poll_at,
             )
-            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
 
         elif upcoming:
             # Remove postponed and cancelled matches from the calculation of next match time
@@ -366,7 +360,7 @@ class Football:
                 next_match_utc,
                 in_play=False,
             )
-            self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_match_utc, self.get_todays_matches)
         else:
             logging.debug("No more matches today")
             self._live_poll_period.end_if_active()

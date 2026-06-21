@@ -88,6 +88,11 @@ def _next_wc_tournament_midnight_utc(*, now: datetime | None = None) -> datetime
     return next_midnight_local.astimezone(timezone.utc)
 
 
+def _next_daily_get_todays_matches_utc(*, now: datetime | None = None) -> datetime:
+    """Pacific midnight + 1 min — daily tournament-day refresh."""
+    return _next_wc_tournament_midnight_utc(now=now) + timedelta(minutes=1)
+
+
 
 class WorldCup:
     def __init__(self, scheduler: TaskScheduler, daily_retry: DailyApiRetryScheduler) -> None:
@@ -108,8 +113,8 @@ class WorldCup:
             self.sync_standings,
             timedelta(days=1),
         )
-        self.scheduler.schedule_task(
-            next_sync_time + timedelta(minutes=1),
+        self.scheduler.schedule_earlier_task(
+            _next_daily_get_todays_matches_utc(),
             self.get_todays_matches,
             timedelta(days=1),
         )
@@ -439,7 +444,7 @@ class WorldCup:
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
             next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
-            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
             return
 
         try:
@@ -449,7 +454,7 @@ class WorldCup:
             logging.warning("Live World Cup match update failed; next poll at normal interval")
             self.update_live_standings(None)
             next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
-            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
             return
 
         newly_finished_group_match = self._any_group_matches_newly_finished(
@@ -667,11 +672,15 @@ class WorldCup:
         tournament_start = WC_TOURNAMENT_START.astimezone(WC_TOURNAMENT_TZ).date()
         if _wc_tournament_today(now=now) < tournament_start:
             next_poll = WC_TOURNAMENT_START
+            poll_interval = None
         else:
-            next_poll = _next_wc_tournament_midnight_utc(now=now)
+            next_poll = _next_daily_get_todays_matches_utc(now=now)
+            poll_interval = timedelta(days=1)
 
         self._live_poll_period.log_poll_period_scheduled(next_poll, in_play=False)
-        self.scheduler.schedule_task(next_poll, self.get_todays_matches)
+        self.scheduler.schedule_earlier_task(
+            next_poll, self.get_todays_matches, poll_interval
+        )
 
     def schedule_live_updates(self, matches: list[Match]) -> None:
         in_play = any(
@@ -701,7 +710,7 @@ class WorldCup:
                 upcoming=upcoming,
                 next_poll_at=next_poll_at,
             )
-            self.scheduler.schedule_task(next_poll_at, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
             return
 
         if upcoming:
@@ -737,7 +746,7 @@ class WorldCup:
                 next_match_utc,
                 in_play=False,
             )
-            self.scheduler.schedule_task(next_match_utc, self.get_todays_matches)
+            self.scheduler.schedule_earlier_task(next_match_utc, self.get_todays_matches)
             return
 
         logging.debug("No more World Cup matches today")
