@@ -34,7 +34,7 @@ class Sensors:
         # Store the scheduler
         self.scheduler = scheduler
 
-        # Schedule the task to check the external IP every minute and update the DNS if it has changed
+        # Schedule the task to check the temperature and humidity of the sensors every 5 minutes
         self.scheduler.schedule_task(
             datetime.now(timezone.utc), self._get_sensors_data, timedelta(minutes=5)
         )
