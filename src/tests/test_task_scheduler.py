@@ -62,5 +62,29 @@ class TestScheduleEarlierTask(unittest.TestCase):
         self.assertEqual(len(self.scheduler.task_list), 2)
 
 
+class TestPeriodicRequeue(unittest.TestCase):
+    def test_periodic_task_requeues_after_run(self) -> None:
+        scheduler = TaskScheduler()
+        calls: list[int] = []
+
+        def periodic() -> None:
+            calls.append(1)
+
+        start = datetime.now(timezone.utc) - timedelta(seconds=1)
+        scheduler.schedule_task(start, periodic, timedelta(milliseconds=50))
+
+        import time
+
+        for _ in range(3):
+            for task in scheduler.get_runnable_tasks():
+                task.function()
+            time.sleep(0.06)
+
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(len(scheduler.task_list), 1)
+        self.assertIs(scheduler.task_list[0].function, periodic)
+        self.assertIsNotNone(scheduler.task_list[0].interval)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -65,18 +65,15 @@ class TaskScheduler:
             # If the task time is in the past it is runnable
             if task.time < datetime.now(timezone.utc):
 
-                # Check whether the task is periodic
+                runnable_tasks.append(task)
+                self.task_list.remove(task)
+
+                # Re-queue periodic tasks after removing the runnable one — otherwise
+                # schedule_earlier_task sees the same callback still pending and ignores.
                 if task.interval is not None:
-                    # If so schedule the next iteration of the task
                     self.schedule_earlier_task(
                         task.time + task.interval, task.function, task.interval
                     )
-
-                # Add the task to the list of runnable tasks
-                runnable_tasks.append(task)
-
-                # Remove the old task from the list
-                self.task_list.remove(task)
 
         return runnable_tasks
 
