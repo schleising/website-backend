@@ -26,11 +26,15 @@ def _index_matches(
     existing_unique = bool(index_meta.get("unique", False))
     existing_partial = index_meta.get("partialFilterExpression")
 
-    return (
-        existing_keys == keys
-        and existing_unique == unique
-        and existing_partial == partial_filter_expression
-    )
+    if existing_keys != keys:
+        return False
+    if existing_partial != partial_filter_expression:
+        return False
+    if unique and not existing_unique:
+        return False
+
+    # A unique index satisfies a non-unique ensure on the same keys.
+    return True
 
 
 def _keys_match(index_meta: dict[str, Any], keys: list[tuple[str, int]]) -> bool:
@@ -68,10 +72,6 @@ def _ensure_index(
             logging.warning(
                 f"Index {collection.full_name}.{index_name} matches keys {keys} but is not unique; requested unique index ensure skipped"
             )
-        elif not unique and existing_unique:
-            logging.info(
-                f"Index {collection.full_name}.{index_name} matches keys {keys} and is unique; reusing for non-unique ensure"
-            )
 
         return
 
@@ -108,6 +108,38 @@ def _index_has_text_keys(index_meta: dict[str, Any]) -> bool:
     return False
 
 
+def _text_index_satisfies_request(
+    index_meta: dict[str, Any],
+    keys: list[tuple[str, str]],
+    *,
+    default_language: str,
+    weights: dict[str, int] | None,
+) -> bool:
+    """Return True when an existing text index matches the requested definition.
+
+    MongoDB stores text indexes internally as ``_fts`` / ``_ftsx`` keys, so callers
+    should compare weights and language rather than the requested field keys.
+    """
+
+    if not _index_has_text_keys(index_meta):
+        return False
+
+    if index_meta.get("default_language", "english") != default_language:
+        return False
+
+    if isinstance(weights, dict) and len(weights) > 0:
+        return index_meta.get("weights") == weights
+
+    expected_fields = {
+        field for field, index_type in keys if str(index_type).lower() == "text"
+    }
+    existing_weights = index_meta.get("weights")
+    if not isinstance(existing_weights, dict):
+        return False
+
+    return expected_fields.issubset(existing_weights.keys())
+
+
 def _ensure_text_index(
     collection: Collection,
     keys: list[tuple[str, str]],
@@ -120,15 +152,20 @@ def _ensure_text_index(
     existing_indexes = collection.index_information()
 
     for index_meta in existing_indexes.values():
-        if index_meta.get("key") == keys:
+        if _text_index_satisfies_request(
+            index_meta,
+            keys,
+            default_language=default_language,
+            weights=weights,
+        ):
             return
 
     for index_name, index_meta in existing_indexes.items():
         if not _index_has_text_keys(index_meta):
             continue
 
-        logging.info(
-            "Text index already exists on %s as %s; requested text index ensure skipped",
+        logging.warning(
+            "Text index already exists on %s as %s with incompatible definition; requested text index ensure skipped",
             collection.full_name,
             index_name,
         )
