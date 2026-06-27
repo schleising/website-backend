@@ -30,7 +30,7 @@ from .feed_refresh_policy import (
     source_needs_fetch,
 )
 from .feed_summary_images import extract_first_summary_image_url, strip_duplicate_summary_image
-from .url_safety import is_public_http_url
+from .url_safety import explain_public_http_url_block, is_public_http_url
 
 from . import (
     FEED_ARTICLES_COLLECTION,
@@ -587,8 +587,9 @@ class Feeds:
         history: list[requests.Response] = []
 
         for _ in range(max_redirects + 1):
-            if not is_public_http_url(current_url):
-                raise requests.RequestException(f"Blocked non-public URL target: {current_url}")
+            block_reason = explain_public_http_url_block(current_url)
+            if block_reason is not None:
+                raise requests.RequestException(block_reason)
 
             response = session.get(
                 current_url,
@@ -609,9 +610,10 @@ class Feeds:
                 )
 
             next_url = urljoin(current_url, redirect_location)
-            if not is_public_http_url(next_url):
+            redirect_block_reason = explain_public_http_url_block(next_url)
+            if redirect_block_reason is not None:
                 response.close()
-                raise requests.RequestException(f"Blocked non-public redirect target: {next_url}")
+                raise requests.RequestException(redirect_block_reason)
 
             history.append(response)
             response.close()
