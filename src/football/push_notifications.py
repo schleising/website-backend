@@ -10,6 +10,7 @@ from pywebpush import WebPushException, webpush
 from requests import status_codes
 
 from . import football_push
+from .match_stabilize import is_match_status_regression
 from .models import Match, MatchStatus, PushSubscriptionDocument
 
 if TYPE_CHECKING:
@@ -160,6 +161,10 @@ def compare_match_states_and_notify(
         previous_match.status != current_match.status
         and previous_match.status != MatchStatus.paused
         and current_match.status != MatchStatus.paused
+        and not is_match_status_regression(
+            previous_match.status,
+            current_match.status,
+        )
     ):
         if current_match.status == MatchStatus.in_play:
             title = "Kickoff"

@@ -27,6 +27,7 @@ from . import (
     wc_standings_collection,
 )
 from .football import TableUpdate, TeamStatus
+from .match_stabilize import stabilize_match_updates
 from .models import LiveTableItem, Match, Matches, MatchStatus, Table, TableItem, Team
 
 TableRowT = TypeVar("TableRowT", bound=TableItem)
@@ -43,6 +44,7 @@ WC_GROUP_STAGE = "GROUP_STAGE"
 WC_UPDATE_DELTA = FOOTBALL_API_MIN_INTERVAL
 WC_TOURNAMENT_TZ = ZoneInfo("America/Los_Angeles")
 WC_CREST_DIR = Path(os.environ.get("WC_CREST_DIR", "/crests/wc"))
+WC_LIVE_MATCH_WINDOW = timedelta(hours=3, minutes=30)
 
 
 def _wc_tournament_today(*, now: datetime | None = None) -> date:
@@ -92,6 +94,25 @@ def _next_daily_get_todays_matches_utc(*, now: datetime | None = None) -> dateti
     """Pacific midnight + 1 min — daily tournament-day refresh."""
     return _next_wc_tournament_midnight_utc(now=now) + timedelta(minutes=1)
 
+
+
+def _match_in_live_window(match: Match, now: datetime) -> bool:
+    """True when a match has kicked off recently and may still be in progress."""
+    if match.status.has_finished:
+        return False
+    if match.status in {
+        MatchStatus.in_play,
+        MatchStatus.paused,
+        MatchStatus.suspended,
+    }:
+        return True
+
+    kickoff = match.utc_date
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=timezone.utc)
+    if kickoff > now:
+        return False
+    return now - kickoff < WC_LIVE_MATCH_WINDOW
 
 
 class WorldCup:
@@ -149,8 +170,9 @@ class WorldCup:
             self._schedule_daily_retry("sync_matches", self.sync_matches)
             return
 
-        self._notify_match_updates(matches.matches)
-        self._write_matches(matches.matches)
+        stabilized_matches = self._stabilize_matches(matches.matches)
+        self._notify_match_updates(stabilized_matches)
+        self._write_matches(stabilized_matches)
         self.daily_retry.on_success("sync_matches")
 
     def _matches_on_tournament_today(self, matches: list[Match]) -> list[Match]:
@@ -372,6 +394,21 @@ class WorldCup:
                 webapp_url=webapp_url,
             )
 
+    def _stabilize_matches(self, matches: list[Match]) -> list[Match]:
+        if wc_match_collection is None or len(matches) == 0:
+            return matches
+
+        match_ids = [match.id for match in matches]
+        previous_by_id: dict[int, Match] = {}
+        for document in wc_match_collection.find({"id": {"$in": match_ids}}):
+            try:
+                previous = Match.model_validate(document)
+            except ValidationError:
+                continue
+            previous_by_id[previous.id] = previous
+
+        return stabilize_match_updates(matches, previous_by_id)
+
     def _write_matches(self, matches: list[Match]) -> None:
         if wc_match_collection is None:
             logging.error("No World Cup match collection configured")
@@ -457,22 +494,21 @@ class WorldCup:
             self.scheduler.schedule_earlier_task(next_poll_at, self.get_todays_matches)
             return
 
+        stabilized_matches = self._stabilize_matches(matches.matches)
         newly_finished_group_match = self._any_group_matches_newly_finished(
-            matches.matches, tournament_today
+            stabilized_matches, tournament_today
         )
 
-        self._notify_match_updates(matches.matches)
-        self._write_matches(matches.matches)
+        self._notify_match_updates(stabilized_matches)
+        self._write_matches(stabilized_matches)
 
         if newly_finished_group_match:
             logging.debug("World Cup group match finished; syncing standings")
             self.sync_standings()
 
-        self.update_live_standings(matches.matches)
+        self.update_live_standings(stabilized_matches)
 
-        self.schedule_live_updates(
-            self._matches_on_tournament_today(matches.matches)
-        )
+        self.schedule_live_updates(stabilized_matches)
 
     def _todays_started_group_matches(
         self, matches: list[Match] | None
@@ -683,6 +719,7 @@ class WorldCup:
         )
 
     def schedule_live_updates(self, matches: list[Match]) -> None:
+        now = datetime.now(timezone.utc)
         in_play = any(
             match.status
             in [
@@ -692,6 +729,7 @@ class WorldCup:
             ]
             for match in matches
         )
+        live_window = any(_match_in_live_window(match, now) for match in matches)
         upcoming = any(
             match.status
             in [
@@ -702,9 +740,9 @@ class WorldCup:
             for match in matches
         )
 
-        if in_play:
+        if in_play or live_window:
             logging.debug("At least one World Cup match is in play")
-            next_poll_at = datetime.now(timezone.utc) + WC_UPDATE_DELTA
+            next_poll_at = now + WC_UPDATE_DELTA
             self._live_poll_period.update(
                 in_play=True,
                 upcoming=upcoming,
