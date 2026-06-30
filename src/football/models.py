@@ -305,13 +305,17 @@ class ResultSet(BaseModel):
 
 
 class FullTime(BaseModel):
-    home: int | None = None
-    away: int | None = None
+    home: int | None = football_api_field("home", "homeTeam", default=None)
+    away: int | None = football_api_field("away", "awayTeam", default=None)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HalfTime(BaseModel):
-    home: int | None = None
-    away: int | None = None
+    home: int | None = football_api_field("home", "homeTeam", default=None)
+    away: int | None = football_api_field("away", "awayTeam", default=None)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Score(BaseModel):
@@ -319,6 +323,9 @@ class Score(BaseModel):
     duration: str
     full_time: FullTime = football_api_field("full_time", "fullTime")
     half_time: HalfTime = football_api_field("half_time", "halfTime")
+    regular_time: FullTime | None = football_api_field(
+        "regular_time", "regularTime", default=None
+    )
     extra_time: FullTime | None = football_api_field(
         "extra_time", "extraTime", default=None
     )
@@ -333,15 +340,70 @@ class Score(BaseModel):
             return home_ft, away_ft
 
         if self._went_to_extra_time():
-            extra_time = self.extra_time
-            if (
-                extra_time is not None
-                and extra_time.home is not None
-                and extra_time.away is not None
-            ):
-                return extra_time.home, extra_time.away
+            return self._post_extra_time_scoreline()
 
         return home_ft, away_ft
+
+    def _uses_api_extra_time_format(self) -> bool:
+        regular_time = self.regular_time
+        if (
+            regular_time is not None
+            and regular_time.home is not None
+            and regular_time.away is not None
+        ):
+            return True
+
+        home_ft = self.full_time.home
+        away_ft = self.full_time.away
+        if home_ft is None or away_ft is None:
+            return False
+
+        if self.duration == "PENALTY_SHOOTOUT" and home_ft != away_ft:
+            return True
+
+        if self.duration == "EXTRA_TIME" and home_ft != away_ft:
+            return True
+
+        return False
+
+    def _post_extra_time_scoreline(self) -> tuple[int | None, int | None]:
+        if self._uses_api_extra_time_format():
+            if self.duration == "PENALTY_SHOOTOUT":
+                regular_time = self.regular_time
+                if (
+                    regular_time is not None
+                    and regular_time.home is not None
+                    and regular_time.away is not None
+                ):
+                    home_total = regular_time.home
+                    away_total = regular_time.away
+                    extra_time = self.extra_time
+                    if (
+                        extra_time is not None
+                        and extra_time.home is not None
+                        and extra_time.away is not None
+                    ):
+                        home_total += extra_time.home
+                        away_total += extra_time.away
+                    return home_total, away_total
+
+                home_ft = self.full_time.home
+                away_ft = self.full_time.away
+                if home_ft is not None and away_ft is not None and home_ft == away_ft:
+                    return home_ft, away_ft
+                return None, None
+
+            return self.full_time.home, self.full_time.away
+
+        extra_time = self.extra_time
+        if (
+            extra_time is not None
+            and extra_time.home is not None
+            and extra_time.away is not None
+        ):
+            return extra_time.home, extra_time.away
+
+        return self.full_time.home, self.full_time.away
 
     def _went_to_extra_time(self) -> bool:
         if self.duration in {"EXTRA_TIME", "PENALTY_SHOOTOUT"}:
