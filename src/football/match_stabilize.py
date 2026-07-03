@@ -28,6 +28,8 @@ _DURATION_RANK: dict[str, int] = {
     "PENALTY_SHOOTOUT": 2,
 }
 
+_INJURY_TIME_ANCHOR_MINUTES = frozenset({45, 90, 105, 120})
+
 
 def _status_rank(status: MatchStatus) -> int:
     return _STATUS_RANK.get(status, 0)
@@ -68,13 +70,17 @@ def _merge_injury_time(
     previous: Match,
     status: MatchStatus,
 ) -> int | None:
-    """Preserve injury time during live play blips; allow clear at half time."""
+    """Preserve injury time only while the live clock is still in that stoppage period."""
     if status == MatchStatus.paused:
         return incoming.injury_time
     if incoming.injury_time is not None:
         return incoming.injury_time
     if status in (MatchStatus.in_play, MatchStatus.suspended):
-        return previous.injury_time
+        if (
+            previous.minute in _INJURY_TIME_ANCHOR_MINUTES
+            and (incoming.minute is None or incoming.minute == previous.minute)
+        ):
+            return previous.injury_time
     return incoming.injury_time
 
 

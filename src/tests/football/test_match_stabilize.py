@@ -259,6 +259,56 @@ class MatchStabilizeTests(unittest.TestCase):
 
         self.assertEqual(stabilized.injury_time, 4)
 
+    def test_clears_injury_time_when_clock_advances_into_extra_time(self) -> None:
+        previous = _match(
+            match_id=6,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=90,
+            injury_time=6,
+        )
+        incoming = _match(
+            match_id=6,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=93,
+            injury_time=None,
+        )
+
+        with patch.object(_stabilize.logger, "info") as mock_info:
+            stabilized = stabilize_match_update(previous, incoming)
+
+        self.assertEqual(stabilized.minute, 93)
+        self.assertIsNone(stabilized.injury_time)
+        self.assertFalse(
+            any("injury_time kept" in str(call) for call in mock_info.call_args_list)
+        )
+
+    def test_clears_stale_injury_time_already_written_in_extra_time(self) -> None:
+        previous = _match(
+            match_id=7,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=93,
+            injury_time=6,
+        )
+        incoming = _match(
+            match_id=7,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=93,
+            injury_time=None,
+        )
+
+        stabilized = stabilize_match_update(previous, incoming)
+
+        self.assertEqual(stabilized.minute, 93)
+        self.assertIsNone(stabilized.injury_time)
+
 
 if __name__ == "__main__":
     unittest.main()
