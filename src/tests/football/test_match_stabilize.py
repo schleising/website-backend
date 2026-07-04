@@ -76,6 +76,7 @@ def _match(
     away_score: int | None,
     minute: int | None = None,
     injury_time: int | None = None,
+    duration: str = "REGULAR",
 ) -> Match:
     payload = copy.deepcopy(_MATCH_TEMPLATE)
     payload.update(
@@ -87,7 +88,7 @@ def _match(
             "injuryTime": injury_time,
             "score": {
                 "winner": None,
-                "duration": "REGULAR",
+                "duration": duration,
                 "fullTime": {"home": home_score, "away": away_score},
                 "halfTime": {"home": None, "away": None},
             },
@@ -307,6 +308,62 @@ class MatchStabilizeTests(unittest.TestCase):
         stabilized = stabilize_match_update(previous, incoming)
 
         self.assertEqual(stabilized.minute, 93)
+        self.assertIsNone(stabilized.injury_time)
+
+    def test_clears_clock_when_match_moves_to_penalty_shootout(self) -> None:
+        previous = _match(
+            match_id=8,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=120,
+            injury_time=3,
+            duration="EXTRA_TIME",
+        )
+        incoming = _match(
+            match_id=8,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=None,
+            injury_time=None,
+            duration="PENALTY_SHOOTOUT",
+        )
+
+        with patch.object(_stabilize.logger, "info") as mock_info:
+            stabilized = stabilize_match_update(previous, incoming)
+
+        self.assertEqual(stabilized.score.duration, "PENALTY_SHOOTOUT")
+        self.assertIsNone(stabilized.minute)
+        self.assertIsNone(stabilized.injury_time)
+        self.assertFalse(
+            any("injury_time kept" in str(call) for call in mock_info.call_args_list)
+        )
+
+    def test_clears_stale_clock_already_written_during_penalties(self) -> None:
+        previous = _match(
+            match_id=9,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=120,
+            injury_time=3,
+            duration="PENALTY_SHOOTOUT",
+        )
+        incoming = _match(
+            match_id=9,
+            status="IN_PLAY",
+            home_score=1,
+            away_score=1,
+            minute=None,
+            injury_time=None,
+            duration="PENALTY_SHOOTOUT",
+        )
+
+        stabilized = stabilize_match_update(previous, incoming)
+
+        self.assertEqual(stabilized.score.duration, "PENALTY_SHOOTOUT")
+        self.assertIsNone(stabilized.minute)
         self.assertIsNone(stabilized.injury_time)
 
 

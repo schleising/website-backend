@@ -65,12 +65,25 @@ def _merge_optional_int(incoming: int | None, previous: int | None) -> int | Non
     return previous
 
 
+def _merge_minute(
+    incoming: Match,
+    previous: Match,
+    score: Score,
+) -> int | None:
+    if score.duration == "PENALTY_SHOOTOUT":
+        return incoming.minute
+    return _merge_optional_int(incoming.minute, previous.minute)
+
+
 def _merge_injury_time(
     incoming: Match,
     previous: Match,
     status: MatchStatus,
+    score: Score,
 ) -> int | None:
     """Preserve injury time only while the live clock is still in that stoppage period."""
+    if score.duration == "PENALTY_SHOOTOUT":
+        return incoming.injury_time
     if status == MatchStatus.paused:
         return incoming.injury_time
     if incoming.injury_time is not None:
@@ -217,8 +230,8 @@ def stabilize_match_update(previous: Match | None, incoming: Match) -> Match:
         update={
             "status": status,
             "score": score,
-            "minute": _merge_optional_int(incoming.minute, previous.minute),
-            "injury_time": _merge_injury_time(incoming, previous, status),
+            "minute": _merge_minute(incoming, previous, score),
+            "injury_time": _merge_injury_time(incoming, previous, status, score),
         }
     )
 
