@@ -131,7 +131,8 @@ class Sensors:
 
         # Iterate over the capabilities
         for capability in govee_status_response.payload.capabilities:
-            if capability.state is None:
+            # Offline devices often return empty sensor readings.
+            if capability.state is None or capability.state.value is None:
                 continue
 
             match capability.instance, capability.state.value:
