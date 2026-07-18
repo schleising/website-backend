@@ -279,10 +279,6 @@ def ensure_backend_indexes() -> None:
     if team_primary_colours is not None:
         _ensure_index(team_primary_colours, [("team_id", ASCENDING)], unique=True)
 
-    sensors_collection = database.get_collection("sensors_collection")
-    if sensors_collection is not None:
-        _ensure_index(sensors_collection, [("device", ASCENDING)], unique=True)
-
     sensor_data = database.get_collection("sensor_data")
     if sensor_data is not None:
         _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", DESCENDING)])
