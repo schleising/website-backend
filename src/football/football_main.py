@@ -7,7 +7,6 @@ from task_scheduler import TaskScheduler
 from utils.network_utils import DailyApiRetryScheduler, FOOTBALL_API_MIN_INTERVAL
 
 from . import Football
-from .world_cup import WorldCup
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +31,12 @@ def _wrap_bootstrap_task(
 def schedule_football_bootstrap(
     scheduler: TaskScheduler,
     football: Football,
-    world_cup: WorldCup,
 ) -> None:
     now = datetime.now(timezone.utc)
     bootstrap_tasks = [
         football.get_table,
         football.get_season_matches,
         football.get_todays_matches,
-        world_cup.sync_matches,
-        world_cup.sync_standings,
-        world_cup.get_todays_matches,
     ]
     remaining = [len(bootstrap_tasks)]
     for index, task in enumerate(bootstrap_tasks):
@@ -58,8 +53,7 @@ def football_loop(terminate_event: Event, log_level: int) -> None:
     daily_retry = DailyApiRetryScheduler(scheduler)
 
     football = Football(scheduler, daily_retry)
-    world_cup = WorldCup(scheduler, daily_retry)
-
-    schedule_football_bootstrap(scheduler, football, world_cup)
+    # World Cup 2026 is in museum mode — do not schedule WC API sync/live polls.
+    schedule_football_bootstrap(scheduler, football)
 
     scheduler.run(terminate_event)
