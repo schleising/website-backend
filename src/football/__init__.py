@@ -10,6 +10,12 @@ from urllib3.util.retry import Retry
 from database import BackendDatabase
 from utils.network_utils import football_api_rate_limit_headers, log_football_api_traffic
 
+from .pl_season import (
+    LIVE_PL_TABLE_COLLECTION,
+    pl_matches_collection_name,
+    pl_table_collection_name,
+)
+
 logger = logging.getLogger(__name__)
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
@@ -47,13 +53,13 @@ def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -
 mongo_db = BackendDatabase()
 
 pl_match_collection = mongo_db.get_collection(
-    "pl_matches_2025_2026", db_name=PL_DATABASE
+    pl_matches_collection_name(), db_name=PL_DATABASE
 )
 pl_table_collection = mongo_db.get_collection(
-    "pl_table_2025_2026", db_name=PL_DATABASE
+    pl_table_collection_name(), db_name=PL_DATABASE
 )
 live_pl_table_collection = mongo_db.get_collection(
-    "live_pl_table", db_name=PL_DATABASE
+    LIVE_PL_TABLE_COLLECTION, db_name=PL_DATABASE
 )
 wc_match_collection = mongo_db.get_collection(
     "wc_matches_2026", db_name=WC_DATABASE

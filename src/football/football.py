@@ -16,6 +16,10 @@ from . import (
     pl_table_collection,
     live_pl_table_collection,
 )
+from .pl_season import (
+    CURRENT_PL_STANDINGS_CLAMP_DATE,
+    current_pl_match_window,
+)
 
 from .models import (
     Table,
@@ -183,10 +187,8 @@ class Football:
         self.daily_retry.schedule(task_name, callback, retry_after)
 
     def get_season_matches(self) -> None:
-        if (
-            self.get_matches_between_dates(datetime(2025, 7, 1), datetime(2026, 6, 30))
-            is not None
-        ):
+        window_start, window_end = current_pl_match_window()
+        if self.get_matches_between_dates(window_start, window_end) is not None:
             self.daily_retry.on_success("get_season_matches")
         else:
             self._schedule_daily_retry("get_season_matches", self.get_season_matches)
@@ -368,11 +370,12 @@ class Football:
     def get_table(self) -> None:
         logging.debug("Getting Table")
 
-        # Get the date, if it is before the season starts, use the start date, otherwise use today's date
-        if datetime.now(timezone.utc).date() < datetime(2025, 8, 19).date():
-            table_date = datetime(2025, 8, 19).date()
+        # Before kickoff, clamp standings date= to the season open matchday
+        today = datetime.now(timezone.utc).date()
+        if today < CURRENT_PL_STANDINGS_CLAMP_DATE:
+            table_date = CURRENT_PL_STANDINGS_CLAMP_DATE
         else:
-            table_date = datetime.now(timezone.utc).date()
+            table_date = today
 
         response = get_request(
             f"https://api.football-data.org/v4/competitions/PL/standings/?date={table_date}",
