@@ -199,7 +199,7 @@ def ensure_backend_indexes() -> None:
     """
     database = BackendDatabase()
 
-    # web_database indexes
+    # web_database indexes (site + shared football app data)
     database.set_database("web_database")
 
     football_push = database.get_collection("football_push_subscriptions")
@@ -207,10 +207,15 @@ def ensure_backend_indexes() -> None:
         _ensure_index(football_push, [("subscription.endpoint", ASCENDING)], unique=True)
         _ensure_index(football_push, [("team_ids", ASCENDING)])
 
-    if database.current_db is not None:
-        collection_names = database.current_db.list_collection_names()
+    sensor_data = database.get_collection("sensor_data")
+    if sensor_data is not None:
+        _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", DESCENDING)])
+        _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", ASCENDING)])
 
-        for collection_name in collection_names:
+    # Premier League database indexes
+    database.set_database("pl_database")
+    if database.current_db is not None:
+        for collection_name in database.current_db.list_collection_names():
             if SEASON_MATCH_PATTERN.match(collection_name):
                 season_matches = database.get_collection(collection_name)
                 if season_matches is None:
@@ -235,6 +240,19 @@ def ensure_backend_indexes() -> None:
                 _ensure_index(season_table, [("team.id", ASCENDING)], unique=True)
                 _ensure_index(season_table, [("position", ASCENDING)])
 
+    live_pl_table = database.get_collection("live_pl_table")
+    if live_pl_table is not None:
+        _ensure_index(live_pl_table, [("team.id", ASCENDING)], unique=True)
+        _ensure_index(live_pl_table, [("position", ASCENDING)])
+
+    team_primary_colours = database.get_collection("pl_team_primary_colours")
+    if team_primary_colours is not None:
+        _ensure_index(team_primary_colours, [("team_id", ASCENDING)], unique=True)
+
+    # World Cup database indexes
+    database.set_database("wc_database")
+    if database.current_db is not None:
+        for collection_name in database.current_db.list_collection_names():
             if WC_MATCH_PATTERN.match(collection_name):
                 wc_matches = database.get_collection(collection_name)
                 if wc_matches is None:
@@ -269,20 +287,6 @@ def ensure_backend_indexes() -> None:
                     [("edition", ASCENDING), ("group_slug", ASCENDING)],
                     unique=True,
                 )
-
-    live_pl_table = database.get_collection("live_pl_table")
-    if live_pl_table is not None:
-        _ensure_index(live_pl_table, [("team.id", ASCENDING)], unique=True)
-        _ensure_index(live_pl_table, [("position", ASCENDING)])
-
-    team_primary_colours = database.get_collection("pl_team_primary_colours")
-    if team_primary_colours is not None:
-        _ensure_index(team_primary_colours, [("team_id", ASCENDING)], unique=True)
-
-    sensor_data = database.get_collection("sensor_data")
-    if sensor_data is not None:
-        _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", DESCENDING)])
-        _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", ASCENDING)])
 
     # feeds_database indexes
     database.set_database("feeds_database")

@@ -13,6 +13,9 @@ from utils.network_utils import football_api_rate_limit_headers, log_football_ap
 logger = logging.getLogger(__name__)
 
 FOOTBALL_DATA_API_HOST = "api.football-data.org"
+PL_DATABASE = "pl_database"
+WC_DATABASE = "wc_database"
+WEB_DATABASE = "web_database"
 
 
 def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -> requests.Response:
@@ -43,15 +46,27 @@ def _log_football_api_response(response: requests.Response, *_args, **_kwargs) -
 
 mongo_db = BackendDatabase()
 
-mongo_db.set_database('web_database')
-
-pl_match_collection = mongo_db.get_collection('pl_matches_2025_2026')
-pl_table_collection = mongo_db.get_collection('pl_table_2025_2026')
-live_pl_table_collection = mongo_db.get_collection('live_pl_table')
-wc_match_collection = mongo_db.get_collection('wc_matches_2026')
-wc_standings_collection = mongo_db.get_collection('wc_standings_2026')
-live_wc_standings_collection = mongo_db.get_collection('live_wc_standings_2026')
-football_push = mongo_db.get_collection('football_push_subscriptions')
+pl_match_collection = mongo_db.get_collection(
+    "pl_matches_2025_2026", db_name=PL_DATABASE
+)
+pl_table_collection = mongo_db.get_collection(
+    "pl_table_2025_2026", db_name=PL_DATABASE
+)
+live_pl_table_collection = mongo_db.get_collection(
+    "live_pl_table", db_name=PL_DATABASE
+)
+wc_match_collection = mongo_db.get_collection(
+    "wc_matches_2026", db_name=WC_DATABASE
+)
+wc_standings_collection = mongo_db.get_collection(
+    "wc_standings_2026", db_name=WC_DATABASE
+)
+live_wc_standings_collection = mongo_db.get_collection(
+    "live_wc_standings_2026", db_name=WC_DATABASE
+)
+football_push = mongo_db.get_collection(
+    "football_push_subscriptions", db_name=WEB_DATABASE
+)
 
 # Try to read the api key from the secret file
 try:

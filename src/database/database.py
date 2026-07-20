@@ -26,19 +26,23 @@ class BackendDatabase:
 
         return self.current_db
 
+    def get_database(self, db_name: str) -> Database:
+        """Return a database handle without changing ``current_db``."""
+        return self.client[db_name]
+
     def get_collection(self, collection_name: str, db_name: str | None = None) -> Collection | None:
         """Gets a collection object given the name of the collection and, optionally, the name of the database
 
         Args:
             collection_name (str): The name of the collection
             db_name (str | None, optional): Optional database name. Defaults to None.
+                When provided, ``current_db`` is left unchanged.
 
         Returns:
             The collection or None if it does not exist
         """
         if db_name is not None:
-            self.current_db = self.client[db_name]
-            return self.current_db[collection_name] if self.current_db is not None else None
+            return self.client[db_name][collection_name]
         elif self.current_db is not None:
             return self.current_db[collection_name]
         else:
