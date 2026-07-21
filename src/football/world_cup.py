@@ -367,7 +367,7 @@ class WorldCup:
         if team.id is None:
             return "/images/football/crests/unknown_team.svg"
 
-        for suffix in (".png", ".svg"):
+        for suffix in (".svg", ".png"):
             if (WC_CREST_DIR / f"{team.id}{suffix}").exists():
                 return f"/images/football/crests/wc/{team.id}{suffix}"
 

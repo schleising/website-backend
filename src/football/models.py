@@ -5,6 +5,35 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+_PL_CREST_FALLBACK = "/images/football/crests/unknown_team.svg"
+_PL_CREST_RASTER_SUFFIXES = frozenset({".png", ".gif", ".jpg", ".jpeg", ".webp"})
+
+
+def resolve_pl_local_crest(crest: str | None) -> str:
+    """Map a football-data.org crest URL to a local static path, preferring SVG.
+
+    The worker does not ship the crest asset tree; when the API crest is SVG we
+    serve the SVG path. Raster API basenames stay as-is (website may upgrade to
+    a sibling SVG when the file exists).
+    """
+    crest_value = (crest or "").strip()
+    if crest_value == "":
+        return _PL_CREST_FALLBACK
+
+    filename = crest_value.split("/")[-1].strip()
+    if filename == "":
+        return _PL_CREST_FALLBACK
+
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".svg":
+        return f"/images/football/crests/{stem}.svg"
+
+    if suffix in _PL_CREST_RASTER_SUFFIXES:
+        return f"/images/football/crests/{filename}"
+
+    return _PL_CREST_FALLBACK
+
 
 def football_api_field(snake_name: str, api_alias: str, **kwargs: Any) -> Any:
     return Field(
@@ -226,20 +255,7 @@ class Team(BaseModel):
 
     @property
     def local_crest(self) -> str:
-        fallback_path = "/images/football/crests/unknown_team.svg"
-        crest_value = (self.crest or "").strip()
-        if crest_value == "":
-            return fallback_path
-
-        filename = crest_value.split("/")[-1].strip()
-        if filename == "":
-            return fallback_path
-
-        suffix = Path(filename).suffix.lower()
-        if suffix == ".svg":
-            return f"/images/football/crests/{Path(filename).stem}.png"
-
-        return f"/images/football/crests/{filename}"
+        return resolve_pl_local_crest(self.crest)
 
 
 class Season(BaseModel):
