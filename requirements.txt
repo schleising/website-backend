@@ -5,12 +5,12 @@ annotated-types==0.8.0
 attrs==26.1.0
 bcrypt==5.0.0
 certifi==2026.7.22
-cffi==2.1.0
+cffi==2.1.1
 charset-normalizer==3.4.9
 cryptography==50.0.0
 dnspython==2.8.0
 feedparser==6.0.14
-feedparser-sgmllib==2.0.1
+feedparser-sgmllib==2.1.0
 frozenlist==1.8.0
 http_ece==1.2.1
 idna==3.18
@@ -23,7 +23,7 @@ pydantic==2.13.4
 pydantic_core==2.46.4
 pymongo==4.17.0
 PyQRCode==1.2.1
-pywebpush==2.3.0
+pywebpush==2.4.0
 requests==2.31.0
 sgmllib3k==1.0.0
 six==1.17.0
