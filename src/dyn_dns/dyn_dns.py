@@ -7,9 +7,8 @@ from enum import Enum
 
 import requests
 
-from notify_run import Notify
-
 from task_scheduler import TaskScheduler
+from system_push import send_system_push
 
 from . import (
     SYNOLOGY_API_BASE_URL,
@@ -24,7 +23,6 @@ from . import (
     SYNOLOGY_GET_EXTERNAL_IP_METHOD,
     CLOUDFLARE_HEADERS,
     CLOUDFLARE_DNS_UPDATE_URL,
-    NOTIFY_RUN_ENDPOINT,
     dyn_dns_details,
     DNS_INFO_COLLECTION,
 )
@@ -48,12 +46,6 @@ class DynDns:
         self.scheduler.schedule_task(
             datetime.now(timezone.utc), self.update_dns, timedelta(seconds=10)
         )
-
-        # If the notify run endpoint is set, initialise the notify run object
-        if NOTIFY_RUN_ENDPOINT:
-            self.notify = Notify(endpoint=NOTIFY_RUN_ENDPOINT)
-        else:
-            self.notify = None
 
     def get_external_ip(self) -> str:
         # Check whether the dyn dns details are set
@@ -256,11 +248,17 @@ class DynDns:
 
             # Try to update the cloudflare DNS A record
             if self.update_cloudflare_dns(new_external_ip, RecordType.A):
-                # If the notify run endpoint is set, send a notification
-                if self.notify:
-                    self.notify.send(
-                        f"DNS Update Succeeded\nIP Address Changed from {dyn_dns_details.current_external_ip} to {new_external_ip}."
+                try:
+                    send_system_push(
+                        "dyn_dns_success",
+                        "DNS Update Succeeded",
+                        (
+                            "IP Address Changed from "
+                            f"{dyn_dns_details.current_external_ip} to {new_external_ip}."
+                        ),
                     )
+                except Exception:
+                    logging.exception("Failed to send dyn DNS success notification")
 
                 # If the DNS record was updated successfully, update the current external IP
                 dyn_dns_details.current_external_ip = new_external_ip
@@ -277,11 +275,18 @@ class DynDns:
                 else:
                     logging.error("Failed to update the HTTPS record.")
             else:
-                # Send a notification if the notify run endpoint is set
-                if self.notify:
-                    self.notify.send(
-                        f"DNS Update Failed\nTried to update to {new_external_ip} but it failed. Current IP Address is {dyn_dns_details.current_external_ip}."
+                try:
+                    send_system_push(
+                        "dyn_dns_failure",
+                        "DNS Update Failed",
+                        (
+                            f"Tried to update to {new_external_ip} but it failed. "
+                            "Current IP Address is "
+                            f"{dyn_dns_details.current_external_ip}."
+                        ),
                     )
+                except Exception:
+                    logging.exception("Failed to send dyn DNS failure notification")
 
 
 def dyn_dns_loop(terminate_event: Event, log_level: int) -> None:
