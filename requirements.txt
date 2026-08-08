@@ -49,6 +49,7 @@ pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pydantic_core==2.46.4
 Pygments==2.20.0
+pymdown-extensions==11.0.1
 pymongo==4.17.0
 pyOpenSSL==26.4.0
 python-dotenv==1.2.2
