@@ -416,6 +416,10 @@ class Football:
                 logging.error("Failed to Write Table to DB")
             else:
                 logging.debug("Table Written")
+                # Reset live overlay to the official start-of-day order so the
+                # website SSR and first WebSocket payload stay aligned until
+                # today's matches actually start.
+                self.update_live_table(None)
         else:
             logging.error("No Database Connection")
 
@@ -553,7 +557,8 @@ class Football:
             # if 'Nottingham' in table_dict:
             #     table_dict['Nottingham'].points -= 4
 
-            # Calculate the new positions
+            # Calculate the new positions (points → GD → GF → name). With all
+            # teams level this yields a stable alphabetical start-of-day order.
             table_list = [table_item for table_item in table_dict.values()]
             table_list = self.update_live_positions(table_list)
 
