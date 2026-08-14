@@ -36,7 +36,7 @@ Markdown==3.10.3
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
-media-cover-art @ git+https://github.com/schleising/media-cover-art.git@9df06b41bbe9f5e56f18ea68cae3661eb1b95b68
+media-cover-art @ git+https://github.com/schleising/media-cover-art.git@c64eabb8468158e00025874656b5da83f6cb3e5c
 motor==3.7.1
 multidict==6.7.1
 propcache==0.5.2
