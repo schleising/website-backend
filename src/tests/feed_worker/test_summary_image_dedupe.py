@@ -73,6 +73,36 @@ class FeedSummaryImageDedupeTests(unittest.TestCase):
 
         self.assertEqual(deduped, summary)
 
+    def test_removes_html_entity_encoded_query_duplicate(self) -> None:
+        """Eurogamer-style feeds keep &amp; in HTML src while media:* uses &."""
+
+        summary = (
+            '<img src="https://cdn.example.com/hero.png?width=690&amp;quality=85" />'
+            "<p>Body</p>"
+        )
+
+        deduped = strip_duplicate_summary_image(
+            summary,
+            "https://cdn.example.com/hero.png?width=690&quality=85",
+            SOURCE_URL,
+        )
+
+        self.assertEqual(deduped, "<p>Body</p>")
+
+    def test_removes_same_path_with_different_cdn_query(self) -> None:
+        summary = (
+            '<img src="https://cdn.example.com/hero.png?width=690&amp;auto=webp" />'
+            "<p>Body</p>"
+        )
+
+        deduped = strip_duplicate_summary_image(
+            summary,
+            "https://cdn.example.com/hero.png?width=1200&quality=85",
+            SOURCE_URL,
+        )
+
+        self.assertEqual(deduped, "<p>Body</p>")
+
 
 class FeedSummaryImageFallbackTests(unittest.TestCase):
     """Verify fallback extraction of the first valid summary image URL."""

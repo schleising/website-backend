@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 SRC_ATTR_RE = re.compile(
@@ -31,7 +32,9 @@ def normalize_summary_image_url(candidate: Any, source_url: str) -> str | None:
     if not isinstance(candidate, str):
         return None
 
-    trimmed = candidate.strip()
+    # Feed HTML often keeps entity-encoded query separators (&amp;) while
+    # media:* attribute URLs are XML-decoded to bare (&).
+    trimmed = unescape(candidate).strip()
     if trimmed == "":
         return None
 
@@ -42,6 +45,37 @@ def normalize_summary_image_url(candidate: Any, source_url: str) -> str | None:
 
     # Ignore fragment differences when matching duplicate article images.
     return parsed._replace(fragment="").geturl()
+
+
+def image_asset_identity(candidate: Any, source_url: str) -> str | None:
+    """Return a CDN-stable identity (scheme/host/path) for duplicate matching."""
+
+    normalized = normalize_summary_image_url(candidate, source_url)
+    if normalized is None:
+        return None
+
+    parsed = urlparse(normalized)
+    path = unquote(parsed.path or "")
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
+
+
+def summary_image_urls_match(
+    left: Any,
+    right: Any,
+    source_url: str,
+) -> bool:
+    """Return whether two image URLs refer to the same article asset."""
+
+    left_normalized = normalize_summary_image_url(left, source_url)
+    right_normalized = normalize_summary_image_url(right, source_url)
+    if left_normalized is None or right_normalized is None:
+        return False
+
+    if left_normalized == right_normalized:
+        return True
+
+    # Same asset with different CDN transform query params (width/format/etc).
+    return image_asset_identity(left, source_url) == image_asset_identity(right, source_url)
 
 
 def extract_first_summary_image_url(summary_html: str | None, source_url: str) -> str | None:
@@ -82,8 +116,7 @@ def strip_duplicate_summary_image(
         if src_value is None:
             return img_tag
 
-        canonical_src = normalize_summary_image_url(src_value, source_url)
-        if canonical_src == canonical_media_url:
+        if summary_image_urls_match(src_value, media_image_url, source_url):
             return ""
 
         return img_tag
