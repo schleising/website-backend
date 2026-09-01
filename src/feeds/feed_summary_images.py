@@ -10,6 +10,9 @@ SRC_ATTR_RE = re.compile(
     r"\bsrc\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))",
     re.IGNORECASE,
 )
+# Future/Tom's Guide CDN RSS media URLs append "-{width}-{height}" before the extension
+# while inline article HTML uses the bare asset filename.
+CDN_DIMENSION_SUFFIX_RE = re.compile(r"-\d+-\d+(\.[^./?#]+)$", re.IGNORECASE)
 
 
 def _extract_img_src(tag: str) -> str | None:
@@ -47,6 +50,13 @@ def normalize_summary_image_url(candidate: Any, source_url: str) -> str | None:
     return parsed._replace(fragment="").geturl()
 
 
+def canonical_image_asset_path(path: str) -> str:
+    """Normalize CDN asset paths for duplicate matching."""
+
+    decoded_path = unquote(path or "")
+    return CDN_DIMENSION_SUFFIX_RE.sub(r"\1", decoded_path)
+
+
 def image_asset_identity(candidate: Any, source_url: str) -> str | None:
     """Return a CDN-stable identity (scheme/host/path) for duplicate matching."""
 
@@ -55,7 +65,7 @@ def image_asset_identity(candidate: Any, source_url: str) -> str | None:
         return None
 
     parsed = urlparse(normalized)
-    path = unquote(parsed.path or "")
+    path = canonical_image_asset_path(parsed.path or "")
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
 
 

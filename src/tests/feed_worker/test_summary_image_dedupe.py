@@ -103,6 +103,22 @@ class FeedSummaryImageDedupeTests(unittest.TestCase):
 
         self.assertEqual(deduped, "<p>Body</p>")
 
+    def test_removes_future_cdn_dimension_suffix_duplicate(self) -> None:
+        """Space.com-style feeds use -1280-80 in RSS media URLs but not inline HTML."""
+
+        summary = (
+            '<figure><img src="https://cdn.mos.cms.futurecdn.net/VVts2792MPQo3uMwdx2DZY.jpg" '
+            'alt="hero"></figure><p>Body</p>'
+        )
+
+        deduped = strip_duplicate_summary_image(
+            summary,
+            "https://cdn.mos.cms.futurecdn.net/VVts2792MPQo3uMwdx2DZY-1280-80.jpg",
+            "https://www.space.com/home/feed/site.xml",
+        )
+
+        self.assertEqual(deduped, "<figure></figure><p>Body</p>")
+
 
 class FeedSummaryImageFallbackTests(unittest.TestCase):
     """Verify fallback extraction of the first valid summary image URL."""
