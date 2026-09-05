@@ -40,6 +40,7 @@ from utils.network_utils import (
     get_request,
 )
 
+from .match_stabilize import stabilize_match_update
 from .push_notifications import (
     FOOTBALL_WEBAPP_ORIGIN,
     compare_match_states_and_notify,
@@ -276,13 +277,27 @@ class Football:
                     # Log the change
                     logging.debug(f"Match Time Changed: {match.utc_date}")
 
-                # Compare the current match state with the previous match state
-                if pl_match_collection is not None:
-                    previous_match = pl_match_collection.find_one({"id": match.id})
-                    if previous_match is not None:
-                        previous_match = Match.model_validate(previous_match)
+            # Keep furthest-progressed status/score when the API briefly regresses
+            # (e.g. IN_PLAY -> TIMED), matching the documented happy path:
+            # SCHEDULED -> TIMED -> IN_PLAY <-> PAUSED -> FINISHED.
+            previous_by_id: dict[int, Match] = {}
+            if pl_match_collection is not None and match_list:
+                match_ids = [match.id for match in match_list]
+                for document in pl_match_collection.find({"id": {"$in": match_ids}}):
+                    try:
+                        previous = Match.model_validate(document)
+                    except ValidationError:
+                        continue
+                    previous_by_id[previous.id] = previous
 
-                    self.CompareMatchStates(previous_match, match)
+            stabilized_matches: list[Match] = []
+            for match in match_list:
+                previous_match = previous_by_id.get(match.id)
+                stabilized = stabilize_match_update(previous_match, match)
+                stabilized_matches.append(stabilized)
+                self.CompareMatchStates(previous_match, stabilized)
+
+            match_list = stabilized_matches
 
             logging.debug("Creating Operations")
             operations = [
