@@ -4,7 +4,7 @@ aiohttp==3.14.3
 aiosignal==1.4.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
-anyio==4.15.0
+anyio==4.15.1
 attrs==26.1.0
 bcrypt==5.0.0
 bleach==6.4.0
@@ -21,7 +21,7 @@ ecdsa==0.19.2
 email-validator==2.3.0
 fastapi==0.141.1
 fastapi-cli==0.0.32
-fastapi-cloud-cli==0.25.0
+fastapi-cloud-cli==0.26.0
 fastar==0.12.0
 feedparser==6.0.14
 feedparser-sgmllib==2.1.0
@@ -39,7 +39,7 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 media-cover-art @ git+https://github.com/schleising/media-cover-art.git@c64eabb8468158e00025874656b5da83f6cb3e5c
 motor==3.7.1
-multidict==6.7.1
+multidict==6.8.0
 propcache==0.5.2
 py-vapid==1.9.4
 pyasn1==0.6.4
@@ -51,7 +51,7 @@ pydantic-settings==2.15.0
 pydantic_core==2.46.5
 Pygments==2.21.0
 pymdown-extensions==11.0.2
-pymongo==4.18.0
+pymongo==4.18.1
 pyOpenSSL==26.4.0
 python-dotenv==1.2.3
 python-jose==3.5.0
@@ -60,10 +60,10 @@ pywebpush==2.5.0
 PyYAML==6.0.3
 requests==2.34.2
 rich==15.0.0
-rich-toolkit==0.20.4
+rich-toolkit==0.20.5
 rignore==0.8.1
 rsa==4.9.1
-sentry-sdk==2.68.1
+sentry-sdk==2.69.1
 shellingham==1.5.4
 six==1.17.0
 starlette==1.6.0
