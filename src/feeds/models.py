@@ -28,6 +28,7 @@ class FeedSourceDocument(MongoDocumentModel):
     last_error: str | None = None
     next_retry_at: datetime | None = None
     force_refresh_requested_at: datetime | None = None
+    updates_disabled: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

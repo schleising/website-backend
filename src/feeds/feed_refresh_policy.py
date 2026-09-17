@@ -75,8 +75,12 @@ def source_needs_fetch(
 
     Sources are fetched when they have never been fetched, when the regular
     interval has elapsed, or when an explicit force-refresh request is newer
-    than the last successful fetch timestamp.
+    than the last successful fetch timestamp. Admin-disabled sources are never
+    fetched, including when a force-refresh marker is present.
     """
+
+    if bool(source_doc.get("updates_disabled")):
+        return False
 
     last_fetched_at = _coerce_utc_datetime(source_doc.get("last_fetched_at"))
     force_refresh_requested_at = _coerce_utc_datetime(

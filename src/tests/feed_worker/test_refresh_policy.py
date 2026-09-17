@@ -115,6 +115,15 @@ class SourceRefreshPolicyTests(unittest.TestCase):
 
         self.assertTrue(source_needs_fetch(source_doc, self.now, self.fetch_interval))
 
+    def test_updates_disabled_blocks_fetch_including_force_refresh(self) -> None:
+        source_doc = {
+            "updates_disabled": True,
+            "last_fetched_at": self.now - self.fetch_interval - timedelta(seconds=1),
+            "force_refresh_requested_at": self.now,
+        }
+
+        self.assertFalse(source_needs_fetch(source_doc, self.now, self.fetch_interval))
+
     def test_stale_force_refresh_marker_does_not_trigger_fetch(self) -> None:
         source_doc = {
             "last_fetched_at": self.now,
