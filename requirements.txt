@@ -31,7 +31,7 @@ http_ece==1.2.1
 httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
-idna==3.19
+idna==3.20
 Jinja2==3.1.6
 Markdown==3.10.3
 markdown-it-py==4.2.0
@@ -39,8 +39,8 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 media-cover-art @ git+https://github.com/schleising/media-cover-art.git@5bee7cce7bb9e569ee9c68d3bd0a2a541f16f28e
 motor==3.7.1
-multidict==6.8.0
-propcache==0.5.2
+multidict==6.9.0
+propcache==0.5.4
 py-vapid==1.9.4
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
@@ -50,7 +50,7 @@ pydantic-extra-types==2.11.1
 pydantic-settings==2.15.0
 pydantic_core==2.46.5
 Pygments==2.21.0
-pymdown-extensions==11.0.2
+pymdown-extensions==12.0.1
 pymongo==4.18.1
 pyOpenSSL==26.4.0
 python-dotenv==1.2.3
@@ -63,7 +63,7 @@ rich==15.0.0
 rich-toolkit==0.20.5
 rignore==0.8.1
 rsa==4.9.1
-sentry-sdk==2.69.1
+sentry-sdk==2.69.2
 shellingham==1.5.4
 six==1.17.0
 starlette==1.6.0
@@ -71,11 +71,11 @@ tinycss2==1.5.1
 typer==0.27.2
 typing-inspection==0.4.4
 typing_extensions==4.16.0
-urllib3==2.7.0
-uvicorn==0.52.4
+urllib3==2.8.0
+uvicorn==0.53.0
 uvloop==0.22.1
 watchfiles==1.2.0
 webauthn==3.0.0
 webencodings==0.6.1
 websockets==17.1
-yarl==1.24.5
+yarl==1.25.1
