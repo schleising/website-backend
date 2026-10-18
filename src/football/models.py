@@ -585,29 +585,3 @@ class SimplifiedTableRow(BaseModel):
 class SimplifiedFootballData(BaseModel):
     matches: list[SimplifiedMatch]
     table: list[SimplifiedTableRow]
-
-
-# Data for the football bet page
-class FootballBetData(BaseModel):
-    team_name: str
-    name: str
-    played: int
-    points: int
-    owea: str
-    amounta: int
-    oweb: str
-    amountb: int
-    best_case: int
-    worst_case: int
-    balance: str
-    balance_amount: int
-    live: bool
-    home_team: str | None = None
-    away_team: str | None = None
-    home_team_score: int | None = None
-    away_team_score: int | None = None
-
-
-# Ordered list of bet data
-class FootballBetList(BaseModel):
-    bets: list[FootballBetData]

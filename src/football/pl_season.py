@@ -1,8 +1,7 @@
 """Current Premier League season constants for the football worker.
 
-Keep in sync with ``website/football/db_names.py`` (``CURRENT_PL_SEASON``) and
-``bet/src/database.go``. Next rollover: edit ``CURRENT_PL_SEASON`` and
-``CURRENT_PL_STANDINGS_CLAMP_DATE``.
+Keep in sync with ``website/football/db_names.py`` (``CURRENT_PL_SEASON``).
+Next rollover: edit ``CURRENT_PL_SEASON`` and ``CURRENT_PL_STANDINGS_CLAMP_DATE``.
 """
 
 from __future__ import annotations
