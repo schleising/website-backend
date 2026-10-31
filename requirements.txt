@@ -9,7 +9,7 @@ certifi==2026.10.23
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
 charset-normalizer==3.5.2
 cryptography==50.0.2
-dnspython==2.9.0
+dnspython==2.9.1
 feedparser==6.0.14
 feedparser-sgmllib==2.1.0
 frozenlist==1.8.0
@@ -19,8 +19,8 @@ multidict==7.2.1
 propcache==0.5.4
 py-vapid==1.9.6
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
-pydantic==2.14.1
-pydantic-core==2.50.1
+pydantic==2.14.2
+pydantic-core==2.50.2
 pymongo==4.19.0
 pywebpush==2.5.0
 requests==2.34.2
