@@ -21,7 +21,7 @@ py-vapid==1.9.6
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
 pydantic==2.14.3
 pydantic-core==2.50.4
-pymongo==4.19.0
+pymongo==4.20.0
 pywebpush==2.5.0
 requests==2.34.2
 typing-extensions==4.16.0
