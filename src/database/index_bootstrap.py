@@ -404,6 +404,13 @@ def ensure_backend_indexes() -> None:
             media_collection,
             [("backend_name", ASCENDING), ("converted", ASCENDING), ("deleted", ASCENDING)],
         )
+        # Recovery claim polls this once a second. The partial filter keeps the
+        # index to the few rows actually mid-overwrite.
+        _ensure_index(
+            media_collection,
+            [("overwrite_in_progress", ASCENDING), ("backend_name", ASCENDING)],
+            partial_filter_expression={"overwrite_in_progress": True},
+        )
 
     logging.info("Index ensure completed")
 
