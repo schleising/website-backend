@@ -1,9 +1,11 @@
 from threading import Event
-from time import sleep
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 import logging
+
+# Wake at least this often so a signal is noticed while the next task is far away.
+_MAX_SLEEP_SECONDS = 1.0
 
 @dataclass
 class Task:
@@ -77,6 +79,20 @@ class TaskScheduler:
 
         return runnable_tasks
 
+    def _seconds_until_next_task(self) -> float:
+        """How long to sleep before the next task, capped so shutdown stays prompt."""
+
+        if len(self.task_list) == 0:
+            return _MAX_SLEEP_SECONDS
+
+        now = datetime.now(timezone.utc)
+        next_time = min(task.time for task in self.task_list)
+        remaining = (next_time - now).total_seconds()
+        if remaining <= 0:
+            # A task scheduled for "now" is not yet strictly in the past.
+            return 0.001
+        return min(remaining, _MAX_SLEEP_SECONDS)
+
     def run(self, terminate_event: Event) -> None:
         # Infinite loop until the terminate event gets set
         while not terminate_event.is_set():
@@ -87,5 +103,4 @@ class TaskScheduler:
             for task in task_list:
                 task.function()
 
-            # Sleep for a time
-            sleep(0.01)
+            terminate_event.wait(self._seconds_until_next_task())

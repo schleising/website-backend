@@ -42,9 +42,9 @@ class DynDns:
         # Log whether an error has occurred
         self.error = False
 
-        # Schedule the task to check the external IP every minute and update the DNS if it has changed
+        # Check the external IP every 5 minutes and update DNS when it has changed
         self.scheduler.schedule_task(
-            datetime.now(timezone.utc), self.update_dns, timedelta(seconds=10)
+            datetime.now(timezone.utc), self.update_dns, timedelta(minutes=5)
         )
 
     def get_external_ip(self) -> str:

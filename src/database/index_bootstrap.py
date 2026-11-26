@@ -41,6 +41,19 @@ def _keys_match(index_meta: dict[str, Any], keys: list[tuple[str, int]]) -> bool
     return index_meta.get("key") == keys
 
 
+def _drop_index_if_present(collection: Collection[dict[str, object]], index_name: str) -> None:
+    if index_name not in collection.index_information():
+        return
+
+    try:
+        collection.drop_index(index_name)
+        logging.info(f"Dropped index {index_name} on {collection.full_name}")
+    except OperationFailure as ex:
+        logging.warning(
+            f"Failed to drop index {index_name} on {collection.full_name}: {ex}"
+        )
+
+
 def _ensure_index(
     collection: Collection,
     keys: list[tuple[str, int]],
@@ -209,8 +222,10 @@ def ensure_backend_indexes() -> None:
 
     sensor_data = database.get_collection("sensor_data")
     if sensor_data is not None:
+        # The descending index is unique and serves both latest-row and ascending
+        # range reads. The ascending copy only doubled index maintenance.
+        _drop_index_if_present(sensor_data, "device_name_1_timestamp_1")
         _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", DESCENDING)])
-        _ensure_index(sensor_data, [("device_name", ASCENDING), ("timestamp", ASCENDING)])
 
     # Premier League database indexes
     database.set_database("pl_database")
@@ -444,6 +459,12 @@ def run_manual_legacy_index_cleanup() -> None:
                 logging.error(
                     f"Failed to drop index {index_name} on {db_name}.{collection_name}: {ex}"
                 )
+
+    _drop_known_indexes(
+        "web_database",
+        "sensor_data",
+        ["device_name_1_timestamp_1"],
+    )
 
     _drop_known_indexes(
         "web_database",

@@ -73,6 +73,8 @@ FETCH_INTERVAL = timedelta(
 CYCLE_INTERVAL = timedelta(
     seconds=max(5, int(os.getenv("FEEDS_CYCLE_INTERVAL_SECONDS", "15")))
 )
+RETENTION_INTERVAL = timedelta(hours=1)
+_RETENTION_READ_STATE_CHUNK = 2000
 MAX_SCHEDULE_LAG = timedelta(
     seconds=min(120, max(0, int(os.getenv("FEEDS_MAX_REFRESH_LAG_SECONDS", "120"))))
 )
@@ -204,11 +206,9 @@ class Feeds:
         self._article_image_scrape_thread: Thread | None = None
         self._article_image_scrape_lock = Lock()
 
-        self.scheduler.schedule_task(
-            datetime.now(timezone.utc),
-            self.run_cycle,
-            CYCLE_INTERVAL,
-        )
+        now = datetime.now(timezone.utc)
+        self.scheduler.schedule_task(now, self.run_cycle, CYCLE_INTERVAL)
+        self.scheduler.schedule_task(now, self.run_retention, RETENTION_INTERVAL)
 
     def _wait_for_article_image_scrape_slot(self, hostname: str | None) -> None:
         """Apply global + host-specific pace limits to article image scrape requests."""
@@ -654,7 +654,7 @@ class Feeds:
         return last_refresh_at + normalized_interval + timedelta(seconds=stagger_seconds)
 
     def run_cycle(self) -> None:
-        """Execute one ingestion/retention cycle."""
+        """Fetch subscribed sources that are due."""
 
         if (
             FEED_SOURCES_COLLECTION is None
@@ -676,12 +676,20 @@ class Feeds:
 
             if len(pending_scrape_jobs) > 0:
                 self._enqueue_article_image_scrape_jobs(pending_scrape_jobs)
-
-            self._apply_retention()
         except (ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect) as exc:
             logging.error(f"Feed cycle DB connectivity error: {exc}")
         except Exception as exc:
             logging.exception(f"Feed cycle failed unexpectedly: {exc}")
+
+    def run_retention(self) -> None:
+        """Apply article retention on its own schedule, separate from fetching."""
+
+        try:
+            self._apply_retention()
+        except (ServerSelectionTimeoutError, NetworkTimeout, AutoReconnect) as exc:
+            logging.error(f"Feed retention DB connectivity error: {exc}")
+        except Exception as exc:
+            logging.exception(f"Feed retention failed unexpectedly: {exc}")
 
     def _list_fetchable_sources(self) -> list[dict[str, Any]]:
         """Return deduplicated source documents for currently subscribed feeds."""
@@ -1179,20 +1187,9 @@ class Feeds:
             soft_delete_query,
             {"_id": 1, "feed_id": 1},
         )
-
-        soft_delete_ids: list[ObjectId] = []
-        soft_skipped_unread = 0
-        for article_doc in soft_candidates:
-            article_id = article_doc.get("_id")
-            feed_id = article_doc.get("feed_id")
-            if not isinstance(article_id, ObjectId):
-                continue
-
-            if article_has_unread_subscribers(article_id, feed_id, feed_user_map):
-                soft_skipped_unread += 1
-                continue
-
-            soft_delete_ids.append(article_id)
+        soft_delete_ids, soft_skipped_unread = _split_retention_candidates(
+            soft_candidates, feed_user_map
+        )
 
         if len(soft_delete_ids) > 0:
             FEED_ARTICLES_COLLECTION.update_many(
@@ -1218,20 +1215,9 @@ class Feeds:
             },
             {"_id": 1, "feed_id": 1},
         )
-
-        hard_delete_ids: list[ObjectId] = []
-        hard_skipped_unread = 0
-        for article_doc in hard_candidates:
-            article_id = article_doc.get("_id")
-            feed_id = article_doc.get("feed_id")
-            if not isinstance(article_id, ObjectId):
-                continue
-
-            if article_has_unread_subscribers(article_id, feed_id, feed_user_map):
-                hard_skipped_unread += 1
-                continue
-
-            hard_delete_ids.append(article_id)
+        hard_delete_ids, hard_skipped_unread = _split_retention_candidates(
+            hard_candidates, feed_user_map
+        )
 
         if len(hard_delete_ids) > 0:
             FEED_ARTICLES_COLLECTION.delete_many({"_id": {"$in": hard_delete_ids}})
@@ -1888,29 +1874,66 @@ def build_feed_user_map() -> dict[ObjectId, set[str]]:
     return mapping
 
 
-def article_has_unread_subscribers(
-    article_id: ObjectId,
-    feed_id: Any,
+def _split_retention_candidates(
+    candidates: Any,
     feed_user_map: dict[ObjectId, set[str]],
-) -> bool:
-    """Return True when any subscribed user has not read this article yet."""
+) -> tuple[list[ObjectId], int]:
+    """Return ids that can be removed, and how many unread articles were kept.
 
-    if USER_ARTICLE_STATES_COLLECTION is None:
-        return False
+    One aggregation loads read users for the whole candidate set. An article stays
+    while any subscriber has not read it. Articles with no subscribers are removable.
+    """
 
-    if not isinstance(feed_id, ObjectId):
-        return False
+    removable: list[ObjectId] = []
+    subscribed: list[tuple[ObjectId, ObjectId]] = []
+    for article_doc in candidates:
+        article_id = article_doc.get("_id")
+        feed_id = article_doc.get("feed_id")
+        if not isinstance(article_id, ObjectId):
+            continue
+        if not isinstance(feed_id, ObjectId) or len(feed_user_map.get(feed_id, set())) == 0:
+            removable.append(article_id)
+            continue
+        subscribed.append((article_id, feed_id))
 
-    subscribed_users = feed_user_map.get(feed_id, set())
-    if len(subscribed_users) == 0:
-        return False
+    protected = _article_ids_with_unread_subscribers(subscribed, feed_user_map)
+    for article_id, _feed_id in subscribed:
+        if article_id in protected:
+            continue
+        removable.append(article_id)
+    return removable, len(protected)
 
-    read_count = USER_ARTICLE_STATES_COLLECTION.count_documents(
-        {
-            "article_id": article_id,
-            "user_id": {"$in": list(subscribed_users)},
-            "is_read": True,
-        }
-    )
 
-    return read_count < len(subscribed_users)
+def _article_ids_with_unread_subscribers(
+    articles: list[tuple[ObjectId, ObjectId]],
+    feed_user_map: dict[ObjectId, set[str]],
+) -> set[ObjectId]:
+    """Return articles where at least one subscriber has no read state."""
+
+    if USER_ARTICLE_STATES_COLLECTION is None or len(articles) == 0:
+        return set()
+
+    read_users_by_article: dict[ObjectId, set[str]] = {}
+    article_ids = [article_id for article_id, _feed_id in articles]
+    for offset in range(0, len(article_ids), _RETENTION_READ_STATE_CHUNK):
+        chunk = article_ids[offset : offset + _RETENTION_READ_STATE_CHUNK]
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {"article_id": {"$in": chunk}, "is_read": True}},
+            {"$group": {"_id": "$article_id", "user_ids": {"$addToSet": "$user_id"}}},
+        ]
+        for row in USER_ARTICLE_STATES_COLLECTION.aggregate(pipeline):
+            article_id = row.get("_id")
+            user_ids = row.get("user_ids")
+            if not isinstance(article_id, ObjectId) or not isinstance(user_ids, list):
+                continue
+            read_users_by_article[article_id] = {
+                user_id for user_id in user_ids if isinstance(user_id, str)
+            }
+
+    protected: set[ObjectId] = set()
+    for article_id, feed_id in articles:
+        subscribers = feed_user_map.get(feed_id, set())
+        if subscribers.issubset(read_users_by_article.get(article_id, set())):
+            continue
+        protected.add(article_id)
+    return protected
